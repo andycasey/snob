@@ -24,7 +24,7 @@ vre = re_compile("__version__ = \"(.*?)\"")
 version = vre.findall(read(path.join(here, "snob", "__init__.py")))[0]
 
 setup(
-    name="snob"
+    name="snob",
     version=version,
     author="Andrew R. Casey",
     author_email="andrew.casey@monash.edu",
