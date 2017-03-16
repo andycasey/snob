@@ -37,7 +37,7 @@ before_install:
 install: 
   - conda install --yes python=$TRAVIS_PYTHON_VERSION numpy scipy nose six coverage
   - pip install coveralls
-  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then source .ci/setup-texlive.sh; fi
+  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 && $TRAVIS_BRANCH == 'master' ]]; then source .ci/setup-texlive.sh; fi
 
 before_script: # configure a headless display to test plot generation
     - "export DISPLAY=:99.0"
@@ -46,10 +46,10 @@ before_script: # configure a headless display to test plot generation
 
 script:
   - nosetests --with-coverage --cover-package=snob 
-  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then source .ci/travis.sh; fi
+  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 && $TRAVIS_BRANCH == 'master' ]]; then source .ci/travis.sh; fi
   
 after_success:
-  coveralls
+  - coveralls
 
 notifications:
   email:
