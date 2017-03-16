@@ -30,9 +30,7 @@ def log_kappa(D):
         The number of dimensions.
     """
 
-    return  - 0.5 * D * np.log(2 * np.pi) \
-            + 0.5 * np.log(np.pi * D) \
-            - 1
+    return  -0.5*D*np.log(2 * np.pi) + 0.5*np.log(D*np.pi) - 1
 
 
 class Estimator(object):
@@ -94,11 +92,12 @@ class Estimator(object):
         """
         Return the total message length.
         """
-        return (- self.log_prior \
-                + 0.5 * self.log_fisher \
-                - self.log_data \
-                + log_kappa(self.dimensions))
-    
+        return np.sum([
+            -self.log_prior,
+            +0.5*self.log_fisher,
+            -self.log_data,
+            +log_kappa(self.dimensions)
+        ])
 
     @property
     def dimensions(self):
