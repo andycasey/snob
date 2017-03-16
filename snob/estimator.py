@@ -30,7 +30,7 @@ def log_kappa(D):
         The number of dimensions.
     """
 
-    return  -0.5*D*np.log(2 * np.pi) + 0.5*np.log(D*np.pi) - 1
+    return  -0.5*D*np.log(2*np.pi) + 0.5*np.log(D*np.pi) - 1
 
 
 class Estimator(object):

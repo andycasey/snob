@@ -11,14 +11,10 @@ class TestBaseEstimator(unittest.TestCase):
 
     def test_attributes(self):
 
-        N = 5
-        data = np.random.uniform(size=N)
-        model = estimator.Estimator(data=y)
-        
-        model.data
-        model.quantum
-        model.message_length
-    
+        model = estimator.Estimator()
+
+        self.assertTrue(model.quantum > 0)
+         
         with self.assertRaises(NotImplementedError):
             model.log_prior
 

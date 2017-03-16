@@ -62,10 +62,12 @@ def _log_fisher(sigma, weights):
     :param weights:
         The array of weights :math:`w` for all data points.
     """
-    return    np.log(2) \
-            - 4 * np.log(sigma) \
-            + np.log(np.sum(weights)) \
-            + np.log(np.sum(weights**2))
+    return np.sum([
+        +np.log(2),
+        -4*np.log(sigma),
+        +np.log(np.sum(weights)),
+        +np.log(np.sum(weights**2))
+    ])
 
 
 def _log_data(mean, sigma, y, quantum):
@@ -85,10 +87,12 @@ def _log_data(mean, sigma, y, quantum):
 
     Where :math:`\epsilon` represents the quantum of the data, :math:`y`.
     """
-    return -(   (y.size / 2.0) * np.log(2 * np.pi) \
-               + y.size * np.log(sigma) \
-               - np.sum(np.log(quantum)) \
-               + np.sum((y - mean)**2)/(2 * sigma**2))
+    return -np.sum([
+        +(y.size/2.0)*np.log(2*np.pi),
+        +y.size*np.log(sigma),
+        -np.sum(np.log(quantum)),
+        +np.sum((y - mean)**2)/(2*sigma**2))
+    ])
 
 
 def _message_length(parameters, y, yerr, bounds, quantum, gradient=False):
@@ -112,10 +116,12 @@ def _message_length(parameters, y, yerr, bounds, quantum, gradient=False):
     s2 = sigma**2
     weights = s2/(s2 + yerr**2)
 
-    I = - _log_prior(sigma, bounds, quantum) \
-        + 0.5 * _log_fisher(sigma, weights) \
-        - _log_data(mean, sigma, y, quantum) \
-        + estimator.log_kappa(2)
+    I = np.sum([
+        -_log_prior(sigma, bounds, quantum),
+        +0.5*_log_fisher(sigma, weights),
+        -_log_data(mean, sigma, y, quantum),
+        +estimator.log_kappa(2)
+    ])
 
     if not gradient:
         return I
