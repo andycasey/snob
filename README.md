@@ -1,6 +1,6 @@
 # snob 
 
-Put things into classes.
+Arbitrarily put things into classes.
 
 [![Build Status](https://img.shields.io/travis/andycasey/snob/master.svg)](https://travis-ci.org/andycasey/snob)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/andycasey/snob/blob/refactor/LICENSE)

@@ -9,6 +9,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+# TODO: nomenclature in Wallace varies between N and D for dimension size
 def log_kappa(D):
     """
     Return an approximation of the logarithm of the lattice constant 
@@ -43,9 +44,8 @@ class Estimator(object):
         The data that will be fit by the estimator.
     """
 
-    def __init__(self, data, weights=None, **kwargs):
-        self._data = data
-        self._weights = weights
+    def __init__(self, quantum=0.1, **kwargs):
+        self._quantum = quantum
         return None
 
 
@@ -53,9 +53,14 @@ class Estimator(object):
         """
         Return a summary representation of the Estimator.
         """
-        return "<{name} with {D} dimensions, {N} data, and length {L}>".format(
-            name=self.__class__.__name__, D=self.dimensions, N=len(self.data),
-            L=self.message_length)
+        # The precision to which we display the message length will be
+        # determined from the quantum.
+        precision = int(np.ceil(np.max([0, -np.log10(self.quantum)])))
+        return  "<{name} with {D} dimensions, {N} data, "\
+                "and message length {L:.{precision}f} nits>".format(
+                    name=self.__class__.__name__, D=self.dimensions, 
+                    N=len(self.data), L=self.message_length,
+                    precision=precision)
 
 
     @property
@@ -93,6 +98,7 @@ class Estimator(object):
                 + 0.5 * self.log_fisher \
                 - self.log_data \
                 + log_kappa(self.dimensions))
+    
 
     @property
     def dimensions(self):
