@@ -1,9 +1,11 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
-__version__ = "0.0.1"
+""" Snob, 'because it arbitrarily puts things in classes' -- C.S. Wallace. """
 
 import logging
+
+from . import (estimator, gaussian)
+
+__version__ = "0.0.1"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
