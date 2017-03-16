@@ -1,5 +1,5 @@
-#! /usr/bin/env python
-# -*- coding: utf-8 -*-
+
+""" Snob, 'because it arbitrarily puts things in classes' -- C.S. Wallace. """
 
 import sys
 from setuptools import setup, find_packages
