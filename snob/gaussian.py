@@ -91,7 +91,7 @@ def _log_data(mean, sigma, y, quantum):
         +(y.size/2.0)*np.log(2*np.pi),
         +y.size*np.log(sigma),
         -np.sum(np.log(quantum)),
-        +np.sum((y - mean)**2)/(2*sigma**2))
+        +np.sum((y - mean)**2)/(2*sigma**2)
     ])
 
 
