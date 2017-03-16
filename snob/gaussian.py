@@ -120,7 +120,7 @@ def _message_length(parameters, y, yerr, bounds, quantum, gradient=False):
     if not gradient:
         return I
 
-    raise NotImplementedError
+    raise NotImplementedError("TODO: put in analytic derivatives")
 
 
 class GaussianEstimator(estimator.Estimator):
@@ -145,7 +145,8 @@ class GaussianEstimator(estimator.Estimator):
         The upper bound for the sigma value.
 
     :param quantum: [optional]
-        The acceptable rounding-off quantum for the minimum message length.
+        The acceptable rounding-off quantum for the minimum message length
+        in units of nits. Default is 0.1 nit.
     """
 
     parameter_names = ("mean", "sigma")
@@ -181,8 +182,9 @@ class GaussianEstimator(estimator.Estimator):
             if list(mean_bounds).count(None) == 1:
                 raise ValueError("unbounded prior given in mean_bounds")
 
-        self._y, self._yerr = (y, yerr)
+            mean_bounds = tuple(np.sort(mean_bounds))
 
+        self._y, self._yerr = (y, yerr)
         self._bounds = [
             mean_bounds,
             (0, sigma_upper_bound)

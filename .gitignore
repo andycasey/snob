@@ -4,3 +4,8 @@ build/
 
 .coverage
 .gitignore
+
+articles/*/*.aux
+articles/*/*.log
+articles/*/*.pdf
+articles/*/vc.tex

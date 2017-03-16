@@ -1,3 +1,16 @@
+# This configuration file will make Travis CI do the following:
+# - download the latest source
+# - install the code
+# - run unit and integration tests
+# - compile our article PDF(s) and force-push them back to the repository
+
+# The PDF compilation hack is by Dan Foreman-Mackey, with modifications by Andy Casey.
+
+# Travis needs to be provided with the environment variables:
+# - GITHUB_USER:    your GitHub username
+# - GITHUB_API_KEY: a personal access token - make sure that it has access to
+#                   'repo' - https://github.com/settings/tokens
+
 sudo: false
 language: python
 
@@ -24,10 +37,17 @@ before_install:
 install: 
   - conda install --yes python=$TRAVIS_PYTHON_VERSION numpy scipy nose six coverage
   - pip install coveralls
+  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then source .ci/setup-texlive.sh; fi
+
+before_script: # configure a headless display to test plot generation
+    - "export DISPLAY=:99.0"
+    - "sh -e /etc/init.d/xvfb start"
+    - sleep 3 # give xvfb some time to start
 
 script:
   - nosetests --with-coverage --cover-package=snob 
-
+  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then source .ci/travis.sh; fi
+  
 after_success:
   coveralls
 

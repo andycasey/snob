@@ -1,4 +1,4 @@
-# snob 
+## snob 
 
 Arbitrarily put things into classes.
 
@@ -8,8 +8,10 @@ Arbitrarily put things into classes.
 
 ## Authors
 - **Andy Casey** (Monash)
-- **David Dowe** (Monash)
 - **John Lattanzio** (Monash)
+- **David Dowe** (Monash)
+- **Aldeida Aleti** (Monash)
+
 
 ## License
 Copyright 2017 the authors. The code in this repository is released under the open-source MIT License.
