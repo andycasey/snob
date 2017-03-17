@@ -111,8 +111,7 @@ class TestGaussianEstimator(unittest.TestCase):
         self.assertTrue(after <= before)
 
         # Ensure we hit the warning flag.
-
-        model.optimize(maxiter=0, maxfun=0)
+        model.optimize(maxiter=0, maxfun=0, factr=10, pgtol=1e-30)
 
 
 
@@ -146,4 +145,4 @@ class TestGaussianEstimator(unittest.TestCase):
         y = np.random.normal(5.2, 0.4, size=N)
         yerr = np.abs(np.random.normal(0, 0.1, size=N))
 
-        gaussian.GaussianEstimator(y=y, yerr=yerr, upper_sigma_bound=10)
+        gaussian.GaussianEstimator(y=y, yerr=yerr, sigma_upper_bound=10)
