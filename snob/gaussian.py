@@ -95,7 +95,7 @@ def _log_data(mean, sigma, y, quantum):
     ])
 
 
-def _message_length(parameters, y, yerr, bounds, quantum, gradient=False):
+def _message_length(parameters, y, yerr, bounds, quantum):
     """
     Return the approximate message length of the Gaussian estimator, given the
     parameters.
@@ -103,11 +103,20 @@ def _message_length(parameters, y, yerr, bounds, quantum, gradient=False):
     :param parameters:
         A two-length list-like object containing the Gaussian mean and sigma.
 
-    :param estimator:
-        The gaussian estimator.
+    :param y:
+        The data values :math:`y`.
 
-    :param gradient: [optional]
-        Also return the Jacobian of partial derivatives.
+    :param yerr:
+        The normally-distributed sigma uncertainties on :math:`y`.
+
+    :param bounds:
+        A list containing two-length tuples that contain the lower and upper
+        bounds for all parameter names. If no edge bound exists for a parameter
+        then `None` is provided.
+
+    :param quantum:
+        The acceptable rounding-off quantum for the minimum message length
+        in units of nits. Default is 0.1 nit.
     """
 
     mean, sigma = parameters
@@ -116,17 +125,12 @@ def _message_length(parameters, y, yerr, bounds, quantum, gradient=False):
     s2 = sigma**2
     weights = s2/(s2 + yerr**2)
 
-    I = np.sum([
+    return np.sum([
         -_log_prior(sigma, bounds, quantum),
         +0.5*_log_fisher(sigma, weights),
         -_log_data(mean, sigma, y, quantum),
         +estimator.log_kappa(2)
     ])
-
-    if not gradient:
-        return I
-
-    raise NotImplementedError("TODO: put in analytic derivatives")
 
 
 class GaussianEstimator(estimator.Estimator):
