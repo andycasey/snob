@@ -188,7 +188,11 @@ class GaussianEstimator(estimator.Estimator):
             if list(mean_bounds).count(None) == 1:
                 raise ValueError("unbounded prior given in mean_bounds")
 
-            mean_bounds = tuple(np.sort(mean_bounds))
+            elif None not in mean_bounds:
+                mean_bounds = np.sort(mean_bounds)
+
+            mean_bounds = tuple(mean_bounds)
+
 
         self._y, self._yerr = (y, yerr)
         self._bounds = [
