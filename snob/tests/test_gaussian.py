@@ -138,11 +138,11 @@ class TestGaussianEstimator(unittest.TestCase):
 
     def test_prior_on_sigma(self):
 
-
-
-
         N = 5
         y = np.random.normal(5.2, 0.4, size=N)
         yerr = np.abs(np.random.normal(0, 0.1, size=N))
 
-        gaussian.GaussianEstimator(y=y, yerr=yerr, sigma_upper_bound=10)
+        model = gaussian.GaussianEstimator(
+            y=y, yerr=yerr, sigma_upper_bound=10)
+
+        model.optimize()
