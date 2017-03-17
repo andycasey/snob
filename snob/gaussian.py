@@ -342,8 +342,7 @@ class GaussianEstimator(estimator.Estimator):
         :math:`y_n`. The unperturbed and perturbed cases are equivalent when 
         :math:`\epsilon_n = 0`.
         """
-        weights = self.sigma**2/(self.sigma**2 + self.yerr**2)
-        return _log_fisher(self.sigma, weights)
+        return _log_fisher(self.sigma, self.yerr)
 
 
     @property
