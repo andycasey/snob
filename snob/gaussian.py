@@ -33,7 +33,7 @@ def _log_prior(sigma, bounds, quantum):
     return lp
 
 
-def _log_fisher(sigma, weights):
+def _log_fisher(sigma, yerr):
     """
     Return the natural logarithm of the Fisher information.
 
@@ -59,9 +59,11 @@ def _log_fisher(sigma, weights):
     :param sigma:
         The standard deviation :math:`\sigma` of the Gaussian distribution.
 
-    :param weights:
-        The array of weights :math:`w` for all data points.
+    :param yerr:
+        The normally-distributed 1-sigma uncertainties on the data :math:`y`.
     """
+
+    weights = sigma**2/(sigma**2 + yerr**2)
     return np.sum([
         +np.log(2),
         -4*np.log(sigma),
@@ -121,13 +123,9 @@ def _message_length(parameters, y, yerr, bounds, quantum):
 
     mean, sigma = parameters
 
-    # Calculate weights.
-    s2 = sigma**2
-    weights = s2/(s2 + yerr**2)
-
     return np.sum([
         -_log_prior(sigma, bounds, quantum),
-        +0.5*_log_fisher(sigma, weights),
+        +0.5*_log_fisher(sigma, yerr),
         -_log_data(mean, sigma, y, quantum),
         +estimator.log_kappa(2)
     ])
