@@ -80,16 +80,16 @@ class TestGaussianEstimator(unittest.TestCase):
         self.assertIsNotNone(
             gaussian.GaussianEstimator(y=[1], mean_bounds=None))
 
-        self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):
             gaussian.GaussianEstimator(y=[1], mean_bounds=[3])
 
-        self.assertRaises(ValueError):
+        with self.assertRaises(ValueError):
             gaussian.GaussianEstimator(y=[1], mean_bounds=[1,2,3])
 
 
         bounds = [5, 1]
         model = gaussian.GaussianEstimator(y=[2], mean_bounds=bounds)
-        self.assertEqual(model.bounds[0][0] == bounds[1])
+        self.assertEqual(model.bounds[0][0], bounds[1])
 
 
 
