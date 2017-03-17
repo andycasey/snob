@@ -112,4 +112,38 @@ class TestGaussianEstimator(unittest.TestCase):
 
         # Ensure we hit the warning flag.
 
-        model.optimize(maxiter=1, maxfun=1)
+        model.optimize(maxiter=0, maxfun=0)
+
+
+
+    def test_prior_on_mean(self):
+
+        N = 5
+        y = np.random.normal(5.2, 0.4, size=N)
+        yerr = np.abs(np.random.normal(0, 0.1, size=N))
+
+        without_prior = gaussian.GaussianEstimator(y=y, yerr=yerr)
+        without_prior.optimize()
+
+        with_prior = gaussian.GaussianEstimator(
+            y=y, yerr=yerr, mean_bounds=[1, 10])
+        with_prior.optimize()
+
+        print("with", with_prior.message_length)
+        print("without", without_prior.message_length)
+        #self.assertTrue(
+        #    with_prior.message_length > without_prior.message_length)
+
+        print("TODO CHECK PRIOR ON MEAN")
+
+
+    def test_prior_on_sigma(self):
+
+
+
+
+        N = 5
+        y = np.random.normal(5.2, 0.4, size=N)
+        yerr = np.abs(np.random.normal(0, 0.1, size=N))
+
+        gaussian.GaussianEstimator(y=y, yerr=yerr, upper_sigma_bound=10)
