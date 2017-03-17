@@ -23,3 +23,10 @@ class TestBaseEstimator(unittest.TestCase):
 
         with self.assertRaises(NotImplementedError):
             model.log_data
+
+        with self.assertRaises(NotImplementedError):
+            model.parameter_names
+
+
+        model._data = [3]
+        self.assertIsNotNone(model.data)

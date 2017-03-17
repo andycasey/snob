@@ -78,16 +78,6 @@ class Estimator(object):
 
 
     @property
-    def weights(self):
-        """
-        Return the weights for this estimator.
-        """
-        raise NotImplementedError(
-            "weights are not implemented yet")
-        return self._weights
-
-
-    @property
     def message_length(self):
         """
         Return the total message length.
@@ -105,17 +95,6 @@ class Estimator(object):
         Return the number of dimensions in this estimator.
         """
         return len(self.parameter_names)
-
-
-    def _set_parameter_values(self):
-        """
-        Set the parameter values to the Estimator.
-        """
-
-        values = self.estimate_parameters()
-        for parameter_name, value in zip(self.parameter_names, values):
-            setattr(self, "_{}".format(parameter_name), value)
-        return values
         
 
     @property
