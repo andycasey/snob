@@ -3,7 +3,7 @@
 
 import logging
 
-from . import (estimator, gaussian)
+from . import (estimator, gaussian, slf)
 
 __version__ = "0.0.1"
 

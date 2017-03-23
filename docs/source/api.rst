@@ -17,3 +17,9 @@ GaussianEstimator
    :members:
 
 
+SingleLatentFactorEstimator
+---------------------------
+
+.. automodule:: snob.slf
+   :members:
+
