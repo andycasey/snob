@@ -13,7 +13,7 @@ from . import estimator
 
 
 def _log_prior(sigma, bounds, quantum):
-    """
+    r"""
     Return the log likelihood of the prior.
 
     Here we assume a scale-invariant, :math:`1/\sigma` prior on 
@@ -34,7 +34,7 @@ def _log_prior(sigma, bounds, quantum):
 
 
 def _log_fisher(sigma, yerr):
-    """
+    r"""
     Return the natural logarithm of the Fisher information.
 
     For unperturbed data, the Fisher information is (Section 5.6 of
@@ -73,7 +73,7 @@ def _log_fisher(sigma, yerr):
 
 
 def _log_data(mean, sigma, y, quantum):
-    """
+    r"""
     Return the log likelihood of the data.
     
     From Section 5.6 of Wallace (2005), the *negative* log likelihood is
@@ -307,7 +307,7 @@ class GaussianEstimator(estimator.Estimator):
 
     @property
     def log_prior(self):
-        """
+        r"""
         Return the log likelihood of the prior.
 
         Here we assume a scale-invariant, :math:`1/\sigma` prior on 
@@ -320,7 +320,7 @@ class GaussianEstimator(estimator.Estimator):
 
     @property
     def log_fisher(self):
-        """
+        r"""
         Return the natural logarithm of the Fisher information.
 
         For unperturbed data, the Fisher information is (Section 5.6 of
@@ -347,7 +347,7 @@ class GaussianEstimator(estimator.Estimator):
 
     @property
     def log_data(self):
-        """
+        r"""
         Return the log likelihood of the data.
         
         From Section 5.6 of Wallace (2005), the *negative* log likelihood is

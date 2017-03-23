@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # TODO: nomenclature in Wallace varies between N and D for dimension size
 def log_kappa(D):
-    """
+    r"""
     Return an approximation of the logarithm of the lattice constant 
     :math:`\kappa_D` using the relationship:
 
