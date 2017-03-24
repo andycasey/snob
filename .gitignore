@@ -13,3 +13,5 @@ articles/*/vc.tex
 articles/*/*.bib
 
 docs/build/
+
+sandbox_*.py

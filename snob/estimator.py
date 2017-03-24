@@ -85,7 +85,7 @@ class Estimator(object):
         return np.sum([
             -self.log_prior,
             +0.5*self.log_fisher,
-            -self.log_data,
+            -self.log_likelihood,
             +log_kappa(self.dimensions)
         ])
 
@@ -125,9 +125,9 @@ class Estimator(object):
 
 
     @property
-    def log_data(self):
+    def log_likelihood(self):
         """
-        Return the logarithm of the data.
+        Return the logarithm of the likelihood, given the data.
         """
-        raise NotImplementedError("the log_data property should "
+        raise NotImplementedError("the log_likelihood property should "
                                   "be defined in the Estimator sub-class")

@@ -72,7 +72,7 @@ def _log_fisher(sigma, yerr):
     ])
 
 
-def _log_data(mean, sigma, y, quantum):
+def _log_likelihood(mean, sigma, y, quantum):
     r"""
     Return the log likelihood of the data.
     
