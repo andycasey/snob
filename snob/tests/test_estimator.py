@@ -22,7 +22,7 @@ class TestBaseEstimator(unittest.TestCase):
             model.log_fisher
 
         with self.assertRaises(NotImplementedError):
-            model.log_data
+            model.log_likelihood
 
         with self.assertRaises(NotImplementedError):
             model.parameter_names

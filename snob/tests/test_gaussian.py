@@ -48,7 +48,7 @@ class TestGaussianEstimator(unittest.TestCase):
 
         model.log_prior
         model.log_fisher
-        model.log_data
+        model.log_likelihood
 
 
     def test_negative_error(self):
