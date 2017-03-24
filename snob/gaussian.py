@@ -126,7 +126,7 @@ def _message_length(parameters, y, yerr, bounds, quantum):
     return np.sum([
         -_log_prior(sigma, bounds, quantum),
         +0.5*_log_fisher(sigma, yerr),
-        -_log_data(mean, sigma, y, quantum),
+        -_log_likelihood(mean, sigma, y, quantum),
         +estimator.log_kappa(2)
     ])
 
@@ -346,7 +346,7 @@ class GaussianEstimator(estimator.Estimator):
 
 
     @property
-    def log_data(self):
+    def log_likelihood(self):
         r"""
         Return the log likelihood of the data.
         
@@ -363,4 +363,4 @@ class GaussianEstimator(estimator.Estimator):
 
         Where :math:`\epsilon` represents the quantum of the data, :math:`y`.
         """
-        return _log_data(self.mean, self.sigma, self.y, self.quantum)
+        return _log_likelihood(self.mean, self.sigma, self.y, self.quantum)
