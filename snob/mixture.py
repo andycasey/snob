@@ -341,6 +341,8 @@ class GaussianMixtureEstimator(estimator.Estimator):
                 # Can't use a for loop here because K can be made smaller.
                 while K > component: 
 
+                    # TODO: this could be parallelised, and then collect
+                    #       components that won't be killed
                     component_mu, component_cov, component_pp = _m_step(
                         self.y, semi_indices, est_pp, component, D, 
                         self._covariance_type, self._regularization, N_pars)
@@ -370,6 +372,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
                         # Iterate to the next component.
                         component += 1
 
+                # TODO: parallelisable
                 for k in range(K):
                     semi_indices[k] \
                         = evaluate_multinorm(self.y, est_mu[k], est_cov[k])
