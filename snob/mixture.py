@@ -46,10 +46,107 @@ def evaluate_multinorm(y, mu, cov):
     det = np.linalg.det(cov)
     Cinv = np.linalg.inv(cov)
     scale = (2 * np.pi)**(-D/2.0) * det**(-0.5)
-    offset = y - mu
-    return scale * np.exp(-0.5 * np.sum(offset.T * np.dot(Cinv, offset.T), axis=0))
-    
+    if len(mu.shape) == 1:
+        offset = y - mu
+        return scale * np.exp(-0.5 * np.sum(offset.T * np.dot(Cinv, offset.T), axis=0))
 
+    else:
+        raise NotImplementedError
+        K = mu.shape[0]
+        offset = np.tile(y, K).reshape((N, D, K)) - mu
+
+
+
+def _kill_component(y, mu, cov, fractions, component):
+
+    mu = np.delete(mu, component, axis=0)
+    cov = np.delete(cov, component, axis=0)
+    fractions = np.delete(fractions, component, axis=0)
+
+    K, D = mu.shape
+    N, D = y.shape
+
+    fractions = fractions/np.sum(fractions)
+
+    # TODO: not sure if we need to return these.
+    semi_indices = np.zeros((K, N))
+
+    for k in range(K):
+        semi_indices[k] = evaluate_multinorm(y, mu[k], cov[k])
+    
+    return (mu, cov, fractions, semi_indices)
+        
+ 
+def _log_likelihood(semi_indices, fractions, N_pars):
+
+    K, N = semi_indices.shape
+
+    indices = semi_indices * fractions
+
+    log_likelihood = np.sum(np.log(np.sum(indices, axis=0)))
+    delta_length = -log_likelihood \
+        + (N_pars/2.0 * np.sum(np.log(fractions))) \
+        + (N_pars/2.0 + 0.5) * K * np.log(N)
+
+    return (log_likelihood, delta_length)
+
+
+def _initialize(y, K, scalar=0.10):
+    random_indices = np.array([109, 673, 242, 627, 43, 890, 202, 484, 745,
+    489, 68, 363, 421, 239, 92, 517, 256, 586, 234, 302, 441, 226, 
+    387, 17, 853])
+
+    N, D = y.shape
+
+    mu = y[random_indices]
+    fractions = (1.0/K) * np.ones((K, 1))
+
+    global_cov = np.cov(y.T)
+    cov = np.zeros((K, D, D))
+    indices = np.zeros((K, N))
+    semi_indices = np.zeros_like(indices)
+
+    for k in range(K):
+        cov[k] = np.eye(D) * scalar * np.max(np.diag(global_cov))
+        semi_indices[k] =  evaluate_multinorm(y, mu[k], cov[k])
+        indices[k] = semi_indices[k] * fractions[k]
+
+    # TODO: Can these be vectorized?
+
+    return (mu, cov, fractions, semi_indices)
+
+def _m_step(y, semi_indices, est_pp, component, D, covariance_type, regularization, N_pars):
+
+    K, N = semi_indices.shape
+
+    indices = semi_indices * est_pp
+    norm_indices = \
+          indices \
+        / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
+
+    # Perform standard M-step for mean and covariance.
+    normalize = 1.0/np.sum(norm_indices[component])
+
+    aux = np.kron(norm_indices[component], np.ones((D, 1))).T * y
+
+    mu = normalize * np.sum(aux, axis=0)
+
+    if covariance_type in ("free", "tied"):
+        emu = mu.reshape(-1, 1)
+        cov = normalize * np.dot(aux.T, y) \
+            - np.dot(emu, emu.T) \
+            + regularization * np.eye(D)
+    else:
+        cov = normalize * np.diag(np.sum(aux * y, axis=0)) \
+            - np.diag(mu**2)
+
+    pp = (1.0/N) * np.max([
+        np.sum(norm_indices[component]) - N_pars/2.0,
+        0
+    ])
+
+    return (mu, cov, pp)
+    
 
 class GaussianMixtureEstimator(estimator.Estimator):
 
@@ -84,7 +181,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
         covariance matrix for all components.
     """
     
-    def __init__(self, y, k_max, k_min=1, regularization=0, threshold=1e-4,
+    def __init__(self, y, k_max, k_min=1, regularization=0, threshold=1e-5,
         covariance_type="free", **kwargs):
 
         super(GaussianMixtureEstimator, self).__init__(**kwargs)
@@ -106,10 +203,14 @@ class GaussianMixtureEstimator(estimator.Estimator):
             raise ValueError("stopping threshold must be a positive value")
 
         available = ("free", "diag", "tied", "tied_diag")
-        if covariance_type.strip().lower() not in available:
+        covariance_type = covariance_type.strip().lower()
+        if covariance_type not in available:
             raise ValueError("covariance type '{}' is invalid. "\
                              "Must be one of: {}".format(
                                 covariance_type, ", ".join(available)))
+
+        if covariance_type not in ("free", "tied"):
+            raise NotImplementedError("don't get your hopes up")
 
         self._y = y
         self._k_max = k_max
@@ -119,6 +220,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
         self._covariance_type = covariance_type
 
         return None
+
 
     @property
     def y(self):
@@ -132,198 +234,105 @@ class GaussianMixtureEstimator(estimator.Estimator):
     def regularization(self):
         return self._regularization
 
+    @property
+    def k_max(self):
+        return self._k_max
+
+    @property
+    def k_min(self):
+        return self._k_min
+
+
     def optimize(self, **kwargs):
 
 
         K = self._k_max
-
-        N, D = self._y.shape
-        indices = np.zeros((K, N))
-
+        N, D = self.y.shape
         N_pars = _number_of_params(D, self._covariance_type)
 
         # Initialization.
-        #random_indices = np.random.choice(np.arange(N), size=K, replace=False)
-        #print(random_indices)
-        random_indices = np.array([109, 673, 242, 627, 43, 890, 202, 484, 745,
-            489, 68, 363, 421, 239, 92, 517, 256, 586, 234, 302, 441, 226, 
-            387, 17, 853])
+        est_mu, est_cov, est_pp, semi_indices = _initialize(self.y, K, **kwargs)
 
-        est_mu = self._y[random_indices]
-        est_pp = (1.0/K) * np.ones((K, 1))
-
-        global_cov = np.cov(self.y.T)
-
-        scalar = 1/10.0
-        est_cov = np.zeros((K, D, D))
-        for k in range(K):
-            est_cov[k] = np.eye(D) * scalar * np.max(np.diag(global_cov))
-
-        # Initialize the indicator functions.
-        semi_indices = np.zeros((K, N))
-        for k in range(K):
-            semi_indices[k] = evaluate_multinorm(y, est_mu[k], est_cov[k])
-            indices[k] = semi_indices[k] * est_pp[k]
-
-
-        log_likelihood = [
-            np.sum(np.log(np.sum(indices, axis=0)))
-        ]
-        delta_lengths = [-log_likelihood[0] \
-            + (N_pars/2.0 * np.sum(np.log(est_pp))) \
-            + (N_pars/2.0 + 0.5) * K * np.log(N)
-        ]
-        kappas = [K]
+        ll, mindl = _log_likelihood(semi_indices, est_pp, N_pars)
+        ll_dl = [(ll, mindl)]
 
         countf = 1
-        transitions1 = []
-        transitions2 = []
-
-        mindl = delta_lengths[0]
+        
         best = []
 
-        k_cont = 1
-        while k_cont:
+        while True:
             keep_splitting_components = True
 
             while keep_splitting_components:
 
                 component = 0
-                while K > component:
+                # Can't use a for loop here because K can be made smaller.
+                while K > component: 
 
-                    # Start with the M step.
+                    component_mu, component_cov, component_pp \
+                        = _m_step(self.y, semi_indices, est_pp, component, D, 
+                            self._covariance_type, self._regularization, N_pars)
 
-                    # Compute a normalized indicator function.
-                    indices = np.zeros((K, N))
-                    for k in range(K):
-                        indices[k] = semi_indices[k] * est_pp[k]
-
-                    norm_indices = \
-                          indices \
-                        / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
-
-                    # Perform standard M-step for mean and covariance.
-                    normalize = 1.0/np.sum(norm_indices[component])
-
-                    aux = np.kron(norm_indices[component], np.ones((D, 1))).T \
-                        * self.y
-
-                    est_mu[component] = normalize * np.sum(aux, axis=0)
-
-                    if self.covariance_type in ("free", "tied"):
-                        emu = est_mu[component].reshape(-1, 1)
-                        est_cov[component] \
-                            = normalize * np.dot(aux.T, self.y) \
-                            - np.dot(emu, emu.T) \
-                            + self.regularization * np.eye(D)
-
-                    else:
-                        est_cov[component] \
-                            = normalize * np.diag(np.sum(aux * y, axis=0)) \
-                            - np.diag(est_mu[component]**2)
-
-                    if self.covariance_type in ("tied", "tied_diag"):
-                        raise NotImplementedError
-
-                    # Now let's try and kill some components.
-                    est_pp[component] = (1.0/N) * np.max([
-                        np.sum(norm_indices[component]) - N_pars/2.0,
-                        0
-                    ])
-                    
-                    est_pp = est_pp/np.sum(est_pp)
-
-                    killed = (est_pp[component] == 0)
+                    kill_this_component = (component_pp == 0)
 
                     # If the current component gets killed, we have some
                     # paperwork to do.
-                    if killed:
-                        #transitions1 = [transitions1 countf]
-                        est_mu = np.delete(est_mu, component, axis=0)
-                        est_cov = np.delete(est_cov, component, axis=0)
-                        est_pp = np.delete(est_pp, component, axis=0)
-                        semi_indices = np.delete(semi_indices, component, axis=0)
-                        indices = np.delete(indices, component, axis=0)
+                    if kill_this_component:
+                        est_mu, est_cov, est_pp, semi_indices \
+                            = _kill_component(self.y, est_mu, est_cov, est_pp, component)
 
                         # Since we just killed a guy.
                         K -= 1
 
-                        #if covariance_type in ("tied", "tied_diag"):
-                        #    raise NotImplementedError
-
                     else:
+                        # Store the new mu, cov, and pp for this component.
+                        est_mu[component], est_cov[component], est_pp[component] \
+                            = (component_mu, component_cov, component_pp)
+                        
+                        # Re-normalize fractions.
+                        est_pp = est_pp/np.sum(est_pp)
+
                         # Update the corresponding indicator variable.
                         semi_indices[component] = evaluate_multinorm(
-                            self.y, est_mu[component], est_cov[component])
+                            self.y, component_mu, component_cov)
+                        
                         component += 1
 
 
                 countf += 1
 
-
                 for k in range(K):
                     semi_indices[k] \
                         = evaluate_multinorm(self.y, est_mu[k], est_cov[k])
-                    indices[k] = semi_indices[k] * est_pp[k]
-
-
-                log_likelihood.append(
-                    np.sum(np.log(np.sum(indices, axis=0))))
-
-                # Compute and store the description length,.
-                dlength = -log_likelihood[-1] \
-                        + (N_pars/2.0 * np.sum(np.log(est_pp))) \
-                        + (N_pars/2.0 + 0.5) * K * np.log(N)
-                delta_lengths.append(dlength)
-                kappas.append(K)
-
-                # Compute change in the log likelihood to check if we should stpo
-                delta_ll = log_likelihood[-1] - log_likelihood[-2]
                 
-                if np.abs(delta_ll/log_likelihood[-2]) < self._threshold:
+                ll_dl.append(_log_likelihood(semi_indices, est_pp, N_pars))
+
+                
+                # Compute change in the log likelihood to check if we should stpo
+                relative_delta_ll = (ll_dl[-1][0] - ll_dl[-2][0])/ll_dl[-2][0]
+                if np.abs(relative_delta_ll) <= self._threshold:
                     keep_splitting_components = False
 
-            if delta_lengths[-1] < mindl:
+            if ll_dl[-1][1] < mindl:
                 best = [est_pp, est_mu, est_cov, K]                
-                mindl = delta_lengths[-1]
+                mindl = ll_dl[-1][1]
 
             # Should we kill off a component and try again?
-            if K > self._k_min:
+            if est_mu.shape[0] > self._k_min:
 
-                indminp = np.argmin(est_pp)
-
-                # Kill a component
-                est_mu = np.delete(est_mu, indminp, axis=0)
-                est_cov = np.delete(est_cov, indminp, axis=0)
-                est_pp = np.delete(est_pp, indminp, axis=0)
-                semi_indices = np.delete(semi_indices, indminp, axis=0)
-                indices = np.delete(indices, indminp, axis=0)
+                est_mu, est_cov, est_pp, semi_indices = _kill_component(
+                    self.y, est_mu, est_cov, est_pp, np.argmin(est_pp))
 
                 K -= 1
-
-                est_pp = est_pp/np.sum(est_pp)
-
                 countf += 1
 
-                for k in range(K):
-                    semi_indices[k] \
-                        = evaluate_multinorm(self.y, est_mu[k], est_cov[k])
-                    indices[k] = semi_indices[k] * est_pp[k]
-
-
-                log_likelihood.append(
-                    np.sum(np.log(np.sum(indices, axis=0))))
-                dlength = -log_likelihood[-1] \
-                        + (N_pars/2.0 * np.sum(np.log(est_pp))) \
-                        + (N_pars/2.0 + 0.5) * K * np.log(N)
-                delta_lengths.append(dlength)
-                kappas.append(K)
-
+                ll_dl.append(_log_likelihood(semi_indices, est_pp, N_pars))
+                
             else:
-                k_cont = False
+                break # because K = K_{min}
 
-        raise a
 
+        assert best[-1] == 3
 
         raise NotImplementedError("foo")
 
