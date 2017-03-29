@@ -371,7 +371,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
                         
                         # Iterate to the next component.
                         component += 1
-
+                    
                 # TODO: parallelisable
                 for k in range(K):
                     semi_indices[k] \
@@ -381,7 +381,8 @@ class GaussianMixtureEstimator(estimator.Estimator):
                 
                 # Compute change in the log likelihood to see if we should stop
                 relative_delta_ll = (ll_dl[-1][0] - ll_dl[-2][0])/ll_dl[-2][0]
-                if np.abs(relative_delta_ll) <= self._threshold:
+                if np.abs(relative_delta_ll) <= self._threshold \
+                or K == self._k_min:
                     keep_splitting_components = False
 
             if ll_dl[-1][1] < mindl:
@@ -396,7 +397,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
                     self.y, est_mu, est_cov, est_pp, np.argmin(est_pp))
 
                 ll_dl.append(_log_likelihood(semi_indices, est_pp, N_pars))
-                
+            
             else:
                 break # because K = K_{min}
 

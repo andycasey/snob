@@ -74,26 +74,6 @@ class TestSKLearnExample(unittest.TestCase):
         self.assertEqual(op_fractions.size, 2)
 
 
-    def test_sklearn_2(self):
-
-        # From http://scikit-learn.org/stable/auto_examples/mixture/plot_gmm_selection.html#sphx-glr-auto-examples-mixture-plot-gmm-selection-py
-
-
-        # Number of samples per component
-        n_samples = 500
-
-        # Generate random sample, two components
-        np.random.seed(0)
-        C = np.array([[0., -0.1], [1.7, .4]])
-        X = np.r_[np.dot(np.random.randn(n_samples, 2), C),
-                  .7 * np.random.randn(n_samples, 2) + np.array([-6, 3])]
-
-        model = mixture.GaussianMixtureEstimator(X, 10)
-        (op_mu, op_cov, op_fractions), ll = model.optimize()
-
-        self.assertEqual(op_fractions.size, 2)
-
-
 
     def test_iris(self):
 
