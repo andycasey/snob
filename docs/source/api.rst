@@ -17,9 +17,19 @@ GaussianEstimator
    :members:
 
 
+GaussianMixtureEstimator
+------------------------
+
+.. automodule:: snob.mixture
+   :members:
+   :private-members:
+
+
 SingleLatentFactorEstimator
 ---------------------------
 
 .. automodule:: snob.slf
    :members:
+
+
 

@@ -1,5 +1,9 @@
 
-""" An estimator for a mixture of Gaussians, using minimum message length. """
+""" 
+An estimator for a mixture of Gaussians, using minimum message length. 
+
+The score strategy and search algorithm is that of Figueriedo & Jain (2002).
+"""
 
 __all__ = ["GaussianMixtureEstimator"]
 
@@ -342,7 +346,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
         covariance matrix for all components (default: `free`).
     """
 
-    parameter_names = ("mean", "cov", "fractions")
+    parameter_names = ("mean", "cov", "weight")
 
     def __init__(self, y, k_max=None, k_min=None, regularization=0, 
         threshold=1e-5, covariance_type="free", **kwargs):
