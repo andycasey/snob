@@ -10,7 +10,7 @@ __all__ = ["GaussianMixtureEstimator"]
 
 import logging
 import numpy as np
-import scipy.optimize as op
+import scipy
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,9 @@ def _evaluate_responsibility(y, mu, cov):
     Cinv = np.linalg.inv(cov)
     scale = (2 * np.pi)**(-D/2.0) * np.linalg.det(cov)**(-0.5)
     d = y - mu
-    return scale * np.exp(-0.5 * np.sum(d.T * np.dot(Cinv, d.T), axis=0))
-
+    foo =  scale * np.exp(-0.5 * np.sum(d.T * np.dot(Cinv, d.T), axis=0))
+    assert np.isfinite(foo).all()
+    return foo
 
 def _evaluate_responsibilities(y, mu, cov):
     r"""
@@ -290,14 +291,16 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
               - np.diag(mu_k**2)
 
     # Apply score function.
+    print("warning; score function")
     unnormalized_weight_k \
         = _score_function(np.sum(memberships[component_index]), N, N_covpars)
-
+    
     # Update parameters.
     # TODO: Create copy of mu, etc?
     mu[component_index] = mu_k
     cov[component_index] = cov_k
     weight[component_index] = unnormalized_weight_k
+
 
     # Re-normalize the weights.
     weight = weight / np.sum(weight)
@@ -306,6 +309,132 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
     responsibility[component_index] = _evaluate_responsibility(y, mu_k, cov_k)
 
     return (mu, cov, weight, responsibility)
+
+
+def _split_component(y, mu, cov, weight, responsibility, component_index, 
+    covariance_type="free", regularization=0, N_covpars=None, threshold=1e-5,
+    **kwargs):
+    """
+    Split a component from the current mixture and determine the new optimal
+    state.
+
+    :param y:
+        A :math:`N\times{}D` array of the observations :math:`y`,
+        where :math:`N` is the number of observations, and :math:`D` is the
+        number of dimensions per observation.
+
+    :param mu:
+        The current estimates of the Gaussian mean values.
+
+    :param cov:
+        The current estimates of the Gaussian covariance matrices.
+
+    :param weight:
+        The current estimates of the relative mixing weight.
+
+    :param component_index:
+        The index of the component to be split.
+
+    :param N_covpars:
+        The number of parameters due to the covariance structure.
+
+    # TODO: other docs.
+    # TODO: returns?
+    """
+
+    K = weight.size
+    N, D = y.shape
+    N_covpars = N_covpars or _number_of_covariance_parameters(D, covariance_type)
+
+    max_iterations = kwargs.get("max_sub_iterations", 10000)
+
+    # Compute the direction of maximum variance of the parent component, and
+    # locate two points which are one standard deviation away on either side.
+
+    # Calculate the weighted covariance matrix.
+
+    indices = responsibility * weight
+    memberships = indices / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
+    normalization_constant = 1.0/np.sum(memberships[component_index])
+
+    aux = np.kron(memberships[component_index], np.ones((D, 1))).T * y
+    mu_k = normalization_constant * np.sum(aux, axis=0)
+
+    if covariance_type in ("free", "tied"):
+        emu = mu_k.reshape(-1, 1)
+        cov_k = normalization_constant * np.dot(aux.T, y) \
+              - np.dot(emu, emu.T) \
+              + regularization * np.eye(D) 
+
+    else:
+        cov_k = normalization_constant * np.diag(np.sum(aux * y, axis=0)) \
+              - np.diag(mu_k**2)
+
+    # Pick two new initial means at one standard deviation along the
+    # principal component of the variance.
+    _u, _s, v = scipy.linalg.svd(cov_k)
+
+    sigma = np.sqrt(np.diag(cov_k))
+    mu_a = mu_k + v[0] * sigma
+    mu_b = mu_k - v[0] * sigma
+
+    p_mu = np.vstack([mu, [mu_b]])
+    p_mu[component_index] = mu_a
+
+    # Determine memberships (to the two components) based on their Euclidian
+    # distance to the mean of each component.
+    w_a = np.sum(np.abs(y - mu_a), axis=1)
+    w_b = np.sum(np.abs(y - mu_b), axis=1)
+    f = np.sum(w_a)/np.sum(w_a + w_b)
+
+    p_weight = np.vstack([weight, 0])
+    p_weight[component_index] = f * weight[component_index]
+    p_weight[-1] = (1 - f) * weight[component_index]
+
+    p_cov = np.vstack([cov, [cov[component_index]]])
+
+    # Run the expectation step on all new components.
+    R, ll, dl = _expectation(y, p_mu, p_cov, p_weight, N_covpars)
+    
+    iterations = 1
+    ll_dl = [(ll, dl)]
+
+    while True:
+
+
+        # Run the maximization step on the perturbed components.
+        for k in (component_index, -1):
+            #if component_index == 3 and iterations == 3 and k == 3:
+            #    raise a
+
+            p_mu, p_cov, p_weight, R = _maximization(
+                y, p_mu, p_cov, p_weight, R, k,
+                covariance_type, regularization, N_covpars)
+
+            print(iterations, k, p_weight)
+
+        R, ll, dl = _expectation(y, p_mu, p_cov, p_weight, N_covpars)
+
+        # Book-keeping
+        iterations += 1
+        ll_dl.append([ll, dl])
+
+        # Check for convergence.
+        relative_delta_ll = (ll_dl[-1][0] - ll_dl[-2][0])/ll_dl[-2][0]
+        print(iterations, relative_delta_ll)
+        assert np.isfinite(relative_delta_ll)
+        if np.abs(relative_delta_ll) <= threshold \
+        or iterations >= max_iterations:
+            break
+
+    if iterations >= max_iterations:
+        logger.warn("Maximum number of E-M iterations reached ({}) "\
+                    "when splitting component index {}".format(
+                        max_iterations, component_index))
+
+    metadata = {}
+
+    return (p_mu, p_cov, p_weight, R, ll, dl, metadata)
 
 
 class GaussianMixtureEstimator(estimator.Estimator):
@@ -437,21 +566,61 @@ class GaussianMixtureEstimator(estimator.Estimator):
             mixtures.
         """
 
-        raise NotImplementedError("after lunch")
-
         N, D = self.y.shape
         N_cp = _number_of_covariance_parameters(D, self.covariance_type)
 
-        # Initialization.
-        mu, cov, weight = _initialize(self.y, self.k_max, scalar)
+        # Initialize as a one-component mixture.
+        mu, cov, weight = _initialize(self.y, 5, scalar)
 
         # Calculate initial log-likelihood and message length offset
-        R, ll, mindl = _expectation(self.y, mu, cov, weight, N_cp)
-        ll_dl = [(ll, mindl)]
+        responsibility, ll, mindl = _expectation(self.y, mu, cov, weight, N_cp)
 
+        ll_dl = [(ll, mindl)]
         op_params = [mu, cov, weight]
 
         while True:
+
+            # Here I use K to specify the number of components to keep the
+            # same nomenclature (and variables) as F & J (2002).
+            # K & A (2015) use M to specify the number of components.
+
+            K = weight.size
+
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots()
+            ax.scatter(self.y.T[0], self.y.T[1], c=responsibility[0])
+            # Exhaustively split all components.
+            splits = []
+            for k in range(K):
+                #(p_mu, p_cov, p_weight, R, ll, dl, metadata)
+
+                (p_mu, p_cov, p_weight, R2, ll, dl, metadata) \
+                    = _split_component(self.y, mu, cov, weight, responsibility, k)
+                splits.append([k, ll, dl])
+
+            raise a
+
+            # Get best split
+
+            # Exhaustively delete all components.
+            deletes = []
+            for k in range(K):
+                deletes.append(_delete_component(y, mu, cov, weight, k))
+
+            # Get best delete.
+
+            # Exhaustively merge all components.
+            merges = []
+            for k in range(K):
+                merges.append(_merge_component(y, mu, cov, weight, k))
+
+            # Get best perturbation
+
+
+
+
+            raise NotImplementedError("yo")
+
             keep_splitting_components = True
             while keep_splitting_components:
 
