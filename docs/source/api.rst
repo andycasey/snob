@@ -23,6 +23,7 @@ GaussianMixtureEstimator
 .. automodule:: snob.mixture
    :members:
    :private-members:
+   :special-members:
 
 
 SingleLatentFactorEstimator

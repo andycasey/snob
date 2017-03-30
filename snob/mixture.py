@@ -1,6 +1,6 @@
 
-""" 
-An estimator for a mixture of Gaussians, using minimum message length. 
+"""
+An estimator for a mixture of Gaussians, using minimum message length.
 
 The score strategy and search algorithm is that of Figueriedo & Jain (2002).
 """
@@ -17,7 +17,7 @@ from . import estimator
 
 
 def _number_of_covariance_parameters(D, covariance_type):
-    """
+    r"""
     Return the number of parameters, given the number of observed dimensions
     and the covariance type.
 
@@ -45,7 +45,7 @@ def _number_of_covariance_parameters(D, covariance_type):
 
 
 def _evaluate_responsibility(y, mu, cov):
-    """
+    r"""
     Return the distance between the data and a multivariate normal distribution.
 
     :param y:
@@ -66,7 +66,7 @@ def _evaluate_responsibility(y, mu, cov):
 
 
 def _evaluate_responsibilities(y, mu, cov):
-    """
+    r"""
     Evaluate the responsibilities of :math:`K` components to the data.
 
     :param y:
@@ -91,7 +91,7 @@ def _evaluate_responsibilities(y, mu, cov):
 
 
 def _kill_component(y, mu, cov, weight, component_index):
-    """
+    r"""
     Kill off a component, and return the new estimates of the component
     parameters.
 
@@ -132,7 +132,7 @@ def _kill_component(y, mu, cov, weight, component_index):
 
 
 def _initialize(y, K, scalar=0.10):
-    """
+    r"""
     Return initial estimates of the parameters of the :math:`K` Gaussian
     components.
 
@@ -154,17 +154,17 @@ def _initialize(y, K, scalar=0.10):
 
     N, D = y.shape
     random_indices = np.random.choice(np.arange(N), size=K, replace=False)
-    
+
     mu = y[random_indices]
     cov = np.eye(D) * scalar * np.max(np.diag(np.cov(y.T)))
     cov = np.tile(cov, (K, 1)).reshape((K, D, D))
     weight = (1.0/K) * np.ones((K, 1))
-    
+
     return (mu, cov, weight)
 
- 
+
 def _expectation(y, mu, cov, weight, N_covpars):
-    """
+    r"""
     Perform the expectation step of the expectation-maximization algorithm.
 
     :param y:
@@ -187,7 +187,7 @@ def _expectation(y, mu, cov, weight, N_covpars):
 
     :returns:
         A three-length tuple containing the responsibility matrix,
-        the log likelihood, and the change in message length. 
+        the log likelihood, and the change in message length.
     """
 
     N, D = y.shape
@@ -203,7 +203,7 @@ def _expectation(y, mu, cov, weight, N_covpars):
 
 
 def _score_function(members, N, N_covpars):
-    """
+    r"""
     Return the score function (unnormalized weight) for a single component,
     as defined by Figueriedo & Jain (2002).
 
@@ -219,9 +219,9 @@ def _score_function(members, N, N_covpars):
     return np.max([(members - N_covpars/2.0)/N, 0])
 
 
-def _maximization(y, mu, cov, weight, responsibility, component_index, 
+def _maximization(y, mu, cov, weight, responsibility, component_index,
     covariance_type="free", regularization=0, N_covpars=None):
-    """
+    r"""
     Perform the maximization step of the expectation-maximization algorithm on
     a single component.
 
@@ -251,10 +251,10 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
         `diag` for a diagonal covariance matrix, `tied` for a common covariance
         matrix for all components, `tied_diag` for a common diagonal
         covariance matrix for all components (default: `free`).
-    
+
     :param regularization: [optional]
         A regularizing factor to apply to covariance matrices. In very small
-        samples, a regularization factor may be needed to apply to the 
+        samples, a regularization factor may be needed to apply to the
         diagonal of the covariance matrices (default: `0`).
 
     :param N_covpars: [optional]
@@ -309,10 +309,10 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
 
 class GaussianMixtureEstimator(estimator.Estimator):
 
-    """
+    r"""
     An estimator to model data from (potentially) multiple Gaussian
     distributions, using minimum message length.
-    
+
     The priors, formalism, and search strategy given here is an implementation
     of Figueiredo & Jain (2002).
 
@@ -331,7 +331,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
 
     :param regularization: [optional]
         A regularizing factor to apply to covariance matrices. In very small
-        samples, a regularization factor may be needed to apply to the 
+        samples, a regularization factor may be needed to apply to the
         diagonal of the covariance matrices (default: `0`).
 
     :param threshold: [optional]
@@ -348,7 +348,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
 
     parameter_names = ("mean", "cov", "weight")
 
-    def __init__(self, y, k_max=None, k_min=None, regularization=0, 
+    def __init__(self, y, k_max=None, k_min=None, regularization=0,
         threshold=1e-5, covariance_type="free", **kwargs):
 
         super(GaussianMixtureEstimator, self).__init__(**kwargs)
@@ -392,36 +392,36 @@ class GaussianMixtureEstimator(estimator.Estimator):
 
     @property
     def y(self):
-        """ Return the data values, :math:`y`. """
+        r""" Return the data values, :math:`y`. """
         return self._y
 
 
     @property
     def covariance_type(self):
-        """ Return the type of covariance stucture assumed. """
+        r""" Return the type of covariance stucture assumed. """
         return self._covariance_type
 
 
     @property
     def regularization(self):
-        """ Return the regularization strength. """
+        r""" Return the regularization strength. """
         return self._regularization
 
 
     @property
     def k_max(self):
-        """ Return the maximum number of allowed components, :math:`K_{max}`. """
+        r""" Return the maximum number of allowed components, :math:`K_{max}`. """
         return self._k_max
 
 
     @property
     def k_min(self):
-        """ Return the minimum number of allowed components, :math:`K_{min}`. """
+        r""" Return the minimum number of allowed components, :math:`K_{min}`. """
         return self._k_min
 
 
     def optimize(self, scalar=0.1):
-        """
+        r"""
         Minimize the message length (cost function) by a variant of
         expectation maximization, as described in Figueiredo and Jain (2002).
 
@@ -446,7 +446,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
         ll_dl = [(ll, mindl)]
 
         op_params = [mu, cov, weight]
-        
+
         while True:
             keep_splitting_components = True
             while keep_splitting_components:
@@ -454,7 +454,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
                 k = 0
                 # Can't use a for loop here because K can become smaller by
                 # killing away components.
-                while weight.size > k: 
+                while weight.size > k:
 
                     # Run maximization step on a single component.
 
@@ -464,11 +464,11 @@ class GaussianMixtureEstimator(estimator.Estimator):
                     #       We would just need to store the parameters later
                     #       and update the responsibilities separately.
                     mu, cov, weight, R = _maximization(
-                        self.y, mu, cov, weight, R, k, 
+                        self.y, mu, cov, weight, R, k,
                         self.covariance_type, self.regularization, N_cp)
 
-                    
-                    # If the current component gets killed, 
+
+                    # If the current component gets killed,
                     # we have some paperwork to do.
                     kill_this_component = (weight[k] == 0)
                     if kill_this_component:
@@ -479,7 +479,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
                     else:
                         # Iterate to the next component.
                         k += 1
-                
+
                 # Run expectation step.
                 R, ll, dl = _expectation(self.y, mu, cov, weight, N_cp)
                 ll_dl.append([ll, dl])
@@ -499,7 +499,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
                 smallest_component_index = np.argmin(weight)
                 mu, cov, weight, R = _kill_component(
                     self.y, mu, cov, weight, smallest_component_index)
-                
+
                 R, ll, dl = _expectation(self.y, mu, cov, weight, N_cp)
                 ll_dl.append([ll, dl])
 
