@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 from . import estimator
 
 
-def _number_of_params(D, covariance_type):
+def _number_of_covariance_parameters(D, covariance_type):
     """
     Return the number of parameters, given the number of observed dimensions
     and the covariance type.
@@ -40,7 +40,7 @@ def _number_of_params(D, covariance_type):
         raise ValueError("unknown covariance type '{}'".format(covariance_type))
 
 
-def evaluate_multinorm(y, mu, cov):
+def _evaluate_responsibility(y, mu, cov):
     """
     Return the distance between the data and a multivariate normal distribution.
 
@@ -57,11 +57,36 @@ def evaluate_multinorm(y, mu, cov):
     N, D = y.shape
     Cinv = np.linalg.inv(cov)
     scale = (2 * np.pi)**(-D/2.0) * np.linalg.det(cov)**(-0.5)
-    r = y - mu
-    return scale * np.exp(-0.5 * np.sum(r.T * np.dot(Cinv, r.T), axis=0))
+    d = y - mu
+    return scale * np.exp(-0.5 * np.sum(d.T * np.dot(Cinv, d.T), axis=0))
 
 
-def _kill_component(y, mu, cov, fractions, component):
+def _evaluate_responsibilities(y, mu, cov):
+    """
+    Evaluate the responsibilities of :math:`K` components to the data.
+
+    :param y:
+        The data values, :math:`y`.
+
+    :param mu:
+        The mean values of the :math:`K` multivariate normal distributions.
+
+    :param cov:
+        The covariance matrices of the :math:`K` multivariate normal
+        distributions.
+
+    :returns:
+        The responsibility matrix.
+    """
+
+    K, N = (mu.shape[0], y.shape[0])
+    responsibility = np.zeros((K, N))
+    for k, (mu_k, cov_k) in enumerate(zip(mu, cov)):
+        responsibility[k] = _evaluate_responsibility(y, mu_k, cov_k)
+    return responsibility
+
+
+def _kill_component(y, mu, cov, weight, component_index):
     """
     Kill off a component, and return the new estimates of the component
     parameters.
@@ -75,52 +100,31 @@ def _kill_component(y, mu, cov, fractions, component):
     :param cov:
         The current estimates of the Gaussian covariance matrices.
 
-    :param fractions:
-        The current estimates of the relative mixing fractions.
+    :param weight:
+        The current estimates of the relative mixing weight.
 
-    :param component:
+    :param component_index:
         The index of the component to be killed off.
+
+    :returns:
+        A four-length tuple containing the means of the components,
+        the covariance matrices of the components, the relative weights of the
+        components, and the responsibility matrix.
     """
 
-    mu = np.delete(mu, component, axis=0)
-    cov = np.delete(cov, component, axis=0)
-    fractions = np.delete(fractions, component, axis=0)
+    mu = np.delete(mu, component_index, axis=0)
+    cov = np.delete(cov, component_index, axis=0)
+    weight = np.delete(weight, component_index, axis=0)
 
     K, N = (mu.shape[0], y.shape[0])
 
-    # Normalize the fractions.
-    fractions = fractions/np.sum(fractions)
+    # Normalize the weights.
+    weight = weight/np.sum(weight)
 
-    semi_indices = np.zeros((K, N))
-    for k in range(K):
-        semi_indices[k] = evaluate_multinorm(y, mu[k], cov[k])
-    
-    return (mu, cov, fractions, semi_indices)
-        
- 
-def _log_likelihood(semi_indices, fractions, N_pars):
-    """
-    Return the log-likelihood of the data, and the delta change in the message
-    length.
+    # Calculate responsibilities.
+    responsibility = _evaluate_responsibilities(y, mu, cov)
 
-    :param semi_indices:
-        An array of semi_indices.
-
-    :param fractions:
-        The relative mixing fractions for each component.
-
-    :param N_pars:
-        The number of parameters due to the covariance structure.
-    """
-
-    K, N = semi_indices.shape
-
-    log_likelihood = np.sum(np.log(np.sum(semi_indices * fractions, axis=0)))
-    delta_length = -log_likelihood \
-        + (N_pars/2.0 * np.sum(np.log(fractions))) \
-        + (N_pars/2.0 + 0.5) * K * np.log(N)
-
-    return (log_likelihood, delta_length)
+    return (mu, cov, weight, responsibility)
 
 
 def _initialize(y, K, scalar=0.10):
@@ -137,60 +141,167 @@ def _initialize(y, K, scalar=0.10):
     :param scalar: [optional]
         The scalar to apply (multiplicatively) to the mean of the
         variances along each dimension of the data at initialization time.
+
+    :returns:
+        A three-length tuple containing the :math:`K` initial (multivariate)
+        means, the :math:`K` covariance matrices, and the relative weights of
+        each component.
     """
 
     N, D = y.shape
     random_indices = np.random.choice(np.arange(N), size=K, replace=False)
     
     mu = y[random_indices]
-    fractions = (1.0/K) * np.ones((K, 1))
+    cov = np.eye(D) * scalar * np.max(np.diag(np.cov(y.T)))
+    cov = np.tile(cov, (K, 1)).reshape((K, D, D))
+    weight = (1.0/K) * np.ones((K, 1))
+    
+    return (mu, cov, weight)
 
-    global_cov = np.cov(y.T)
-    cov = np.zeros((K, D, D))
-    semi_indices = np.zeros((K, N))
-
-    for k in range(K):
-        cov[k] = np.eye(D) * scalar * np.max(np.diag(global_cov))
-        semi_indices[k] =  evaluate_multinorm(y, mu[k], cov[k])
-        
-    return (mu, cov, fractions, semi_indices)
-
-
-def _m_step(y, semi_indices, est_pp, component, D, covariance_type, 
-    regularization, N_pars):
+ 
+def _expectation(y, mu, cov, weight, N_covpars):
     """
-    Perform the M-step (Section 5.1 of Figueiredo and Jain (2002) on a
-    component and return estimates of the component parameters.
+    Perform the expectation step of the expectation-maximization algorithm.
+
+    :param y:
+        The data values, :math:`y`.
+
+    :param mu:
+        The current best estimates of the (multivariate) means of the :math:`K`
+        components.
+
+    :param cov:
+        The current best estimates of the covariance matrices of the :math:`K`
+        components.
+
+    :param weight:
+        The current best estimates of the relative weight of all :math:`K`
+        components.
+
+    :param N_covpars:
+        The number of parameters due to the covariance structure.
+
+    :returns:
+        A three-length tuple containing the responsibility matrix,
+        the log likelihood, and the change in message length. 
     """
 
-    K, N = semi_indices.shape
+    N, D = y.shape
+    K = weight.size
 
-    indices = semi_indices * est_pp
-    norm_indices = \
-          indices \
-        / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
+    responsibility = _evaluate_responsibilities(y, mu, cov)
+    log_likelihood = np.sum(np.log(np.sum(responsibility * weight, axis=0)))
+    delta_length = -log_likelihood \
+        + (N_covpars/2.0 * np.sum(np.log(weight))) \
+        + (N_covpars/2.0 + 0.5) * K * np.log(N)
 
-    normalize = 1.0/np.sum(norm_indices[component])
-    aux = np.kron(norm_indices[component], np.ones((D, 1))).T * y
-    mu = normalize * np.sum(aux, axis=0)
+    return (responsibility, log_likelihood, delta_length)
+
+
+def _score_function(members, N, N_covpars):
+    """
+    Return the score function (unnormalized weight) for a single component,
+    as defined by Figueriedo & Jain (2002).
+
+    :param members:
+        The estimated number of members (total responsibility) for a component.
+
+    :param N:
+        The number of observations.
+
+    :param N_covpars:
+        The number of parameters due to the covariance structure.
+    """
+    return np.max([(members - N_covpars/2.0)/N, 0])
+
+
+def _maximization(y, mu, cov, weight, responsibility, component_index, 
+    covariance_type="free", regularization=0, N_covpars=None):
+    """
+    Perform the maximization step of the expectation-maximization algorithm on
+    a single component.
+
+    :param y:
+        The data values, :math:`y`.
+
+    :param mu:
+        The current estimates of the Gaussian mean values.
+
+    :param cov:
+        The current estimates of the Gaussian covariance matrices.
+
+    :param weight:
+        The current best estimates of the relative weight of all :math:`K`
+        components.
+
+    :param responsibility:
+        The responsibility matrix for all :math:`N` observations being
+        partially assigned to each :math:`K` component.
+
+    :param component_index:
+        The index of the component to maximize.
+
+    :param covariance_type: [optional]
+        The structure of the covariance matrix for individual components.
+        The available options are: `free` for a free covariance matrix,
+        `diag` for a diagonal covariance matrix, `tied` for a common covariance
+        matrix for all components, `tied_diag` for a common diagonal
+        covariance matrix for all components (default: `free`).
+    
+    :param regularization: [optional]
+        A regularizing factor to apply to covariance matrices. In very small
+        samples, a regularization factor may be needed to apply to the 
+        diagonal of the covariance matrices (default: `0`).
+
+    :param N_covpars: [optional]
+        The number of parameters due to the covariance structure. If `None` is
+        given, this will be calculated, but it's (slightly) faster to include
+        this value.
+
+    :returns:
+        A four-length tuple containing: a new estimate of the component means,
+        the component covariance matrices, the relative weight of each
+        component, and the responsibility matrix.
+    """
+
+    K = weight.size
+    N, D = y.shape
+    N_covpars = N_covpars or _number_of_covariance_parameters(D, covariance_type)
+
+    indices = responsibility * weight
+    memberships = indices / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
+    normalization_constant = 1.0/np.sum(memberships[component_index])
+
+    aux = np.kron(memberships[component_index], np.ones((D, 1))).T * y
+    mu_k = normalization_constant * np.sum(aux, axis=0)
 
     if covariance_type in ("free", "tied"):
-        emu = mu.reshape(-1, 1)
-        cov = normalize * np.dot(aux.T, y) \
-            - np.dot(emu, emu.T) \
-            + regularization * np.eye(D)
+        emu = mu_k.reshape(-1, 1)
+        cov_k = normalization_constant * np.dot(aux.T, y) \
+              - np.dot(emu, emu.T) \
+              + regularization * np.eye(D)
     else:
-        cov = normalize * np.diag(np.sum(aux * y, axis=0)) \
-            - np.diag(mu**2)
+        cov_k = normalization_constant * np.diag(np.sum(aux * y, axis=0)) \
+              - np.diag(mu_k**2)
 
-    # Score function.
-    pp = (1.0/N) * np.max([
-        np.sum(norm_indices[component]) - N_pars/2.0,
-        0
-    ])
+    # Apply score function.
+    unnormalized_weight_k \
+        = _score_function(np.sum(memberships[component_index]), N, N_covpars)
 
-    return (mu, cov, pp)
-    
+    # Update parameters.
+    # TODO: Create copy of mu, etc?
+    mu[component_index] = mu_k
+    cov[component_index] = cov_k
+    weight[component_index] = unnormalized_weight_k
+
+    # Re-normalize the weights.
+    weight = weight / np.sum(weight)
+
+    # Update responsibility matrix for this component.
+    responsibility[component_index] = _evaluate_responsibility(y, mu_k, cov_k)
+
+    return (mu, cov, weight, responsibility)
+
 
 class GaussianMixtureEstimator(estimator.Estimator):
 
@@ -320,90 +431,80 @@ class GaussianMixtureEstimator(estimator.Estimator):
             mixtures.
         """
 
-        K = self._k_max
         N, D = self.y.shape
-        N_pars = _number_of_params(D, self._covariance_type)
+        N_cp = _number_of_covariance_parameters(D, self.covariance_type)
 
         # Initialization.
-        est_mu, est_cov, est_pp, semi_indices = _initialize(self.y, K, scalar)
+        mu, cov, weight = _initialize(self.y, self.k_max, scalar)
 
         # Calculate initial log-likelihood and message length offset
-        ll, mindl = _log_likelihood(semi_indices, est_pp, N_pars)
+        R, ll, mindl = _expectation(self.y, mu, cov, weight, N_cp)
         ll_dl = [(ll, mindl)]
 
-        best = []
+        op_params = [mu, cov, weight]
         
         while True:
             keep_splitting_components = True
             while keep_splitting_components:
 
-                component = 0
-                # Can't use a for loop here because K can be made smaller.
-                while K > component: 
+                k = 0
+                # Can't use a for loop here because K can become smaller by
+                # killing away components.
+                while weight.size > k: 
 
-                    # TODO: this could be parallelised, and then collect
-                    #       components that won't be killed
-                    component_mu, component_cov, component_pp = _m_step(
-                        self.y, semi_indices, est_pp, component, D, 
-                        self._covariance_type, self._regularization, N_pars)
+                    # Run maximization step on a single component.
 
-                    kill_this_component = (component_pp == 0)
+                    # TODO: This could be parallelised, and then collect
+                    #       components that won't be killed.
 
-                    # If the current component gets killed, we have some
-                    # paperwork to do.
-                    if kill_this_component:
-                        K -= 1
-                        est_mu, est_cov, est_pp, semi_indices \
-                            = _kill_component(
-                                self.y, est_mu, est_cov, est_pp, component)
-                        
-                    else:
-                        # Store the new mu, cov, and pp for this component.
-                        est_mu[component], est_cov[component], est_pp[component] \
-                            = (component_mu, component_cov, component_pp)
-                        
-                        # Re-normalize fractions.
-                        est_pp = est_pp/np.sum(est_pp)
+                    #       We would just need to store the parameters later
+                    #       and update the responsibilities separately.
+                    mu, cov, weight, R = _maximization(
+                        self.y, mu, cov, weight, R, k, 
+                        self.covariance_type, self.regularization, N_cp)
 
-                        # Update the corresponding indicator variable.
-                        semi_indices[component] = evaluate_multinorm(
-                            self.y, component_mu, component_cov)
-                        
-                        # Iterate to the next component.
-                        component += 1
                     
-                # TODO: parallelisable
-                for k in range(K):
-                    semi_indices[k] \
-                        = evaluate_multinorm(self.y, est_mu[k], est_cov[k])
+                    # If the current component gets killed, 
+                    # we have some paperwork to do.
+                    kill_this_component = (weight[k] == 0)
+                    if kill_this_component:
+                        mu, cov, weight, R \
+                            = _kill_component(self.y, mu, cov, weight, k)
+                        # Leave k because we just killed the k-th component.
+
+                    else:
+                        # Iterate to the next component.
+                        k += 1
                 
-                ll_dl.append(_log_likelihood(semi_indices, est_pp, N_pars))
-                
+                # Run expectation step.
+                R, ll, dl = _expectation(self.y, mu, cov, weight, N_cp)
+                ll_dl.append([ll, dl])
+
                 # Compute change in the log likelihood to see if we should stop
                 relative_delta_ll = (ll_dl[-1][0] - ll_dl[-2][0])/ll_dl[-2][0]
                 if np.abs(relative_delta_ll) <= self._threshold \
-                or K == self._k_min:
+                or weight.size == self._k_min:
                     keep_splitting_components = False
 
             if ll_dl[-1][1] < mindl:
-                best = [est_mu, est_cov, est_pp]            
+                op_params = [mu, cov, weight]
                 mindl = ll_dl[-1][1]
 
-            # Should we kill off a component and try again?
-            if est_mu.shape[0] > self._k_min:
+            # Should we kill off the smallest component and try again?
+            if weight.size > self._k_min:
+                smallest_component_index = np.argmin(weight)
+                mu, cov, weight, R = _kill_component(
+                    self.y, mu, cov, weight, smallest_component_index)
+                
+                R, ll, dl = _expectation(self.y, mu, cov, weight, N_cp)
+                ll_dl.append([ll, dl])
 
-                K -= 1
-                est_mu, est_cov, est_pp, semi_indices = _kill_component(
-                    self.y, est_mu, est_cov, est_pp, np.argmin(est_pp))
-
-                ll_dl.append(_log_likelihood(semi_indices, est_pp, N_pars))
-            
             else:
-                break # because K = K_{min}
+                break # because weight.size = K = K_{min}
 
         index = np.argmin(np.array(ll_dl)[:, 1])
         ll, dl = ll_dl[index]
 
-        self.mean, self.cov, self.fractions = best
+        self.mean, self.cov, self.weight = op_params
 
-        return (best, ll)
+        return (op_params, ll)
