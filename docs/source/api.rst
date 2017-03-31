@@ -26,6 +26,13 @@ GaussianMixtureEstimator
    :special-members:
 
 
+GaussianMixtureEstimatorKA
+--------------------------
+
+.. automodule:: snob.mixture_ka
+   :members:
+   
+
 SingleLatentFactorEstimator
 ---------------------------
 

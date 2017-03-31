@@ -6,7 +6,7 @@ The MML formalism is that of (Figueriedo & Jain, 2002), but the search
 strategy and score function adopted is that of Kasarapu & Allison (2015).
 """
 
-__all__ = ["GaussianMixtureEstimator"]
+__all__ = ["GaussianMixtureEstimator", "kullback_leibler_for_multivariate_normals"]
 
 import logging
 import numpy as np
@@ -93,7 +93,7 @@ def _evaluate_responsibilities(y, mu, cov):
     return responsibility
 
 
-def _responsibility_matrix(y, mu, cov, weight):
+def _responsibility_matrix(y, mu, cov, weight, small=1e-16):
     r"""
     Return the responsibility matrix,
 
@@ -145,7 +145,7 @@ def _responsibility_matrix(y, mu, cov, weight):
             = scalar * weight[k] * np.linalg.det(cov_k)**(-0.5) \
                      * np.exp(-0.5 * np.sum(O.T * np.dot(Cinv, O.T), axis=0))
 
-    denominator = np.sum(numerator, axis=0)
+    denominator = np.clip(np.sum(numerator, axis=0), small, np.inf)
     return (numerator, denominator)
 
     
@@ -276,7 +276,8 @@ def _expectation(y, mu, cov, weight, N_covpars):
 
     #R = _evaluate_responsibilities(y, mu, cov)
     numerator, denominator = _responsibility_matrix(y, mu, cov, weight)
-    responsibility = numerator/denominator
+    responsibility = np.clip(numerator/denominator, 1e-16, 1.0)
+    assert np.all(np.isfinite(responsibility))
 
     # Eq. 40 omitting -Nd\log\eps
     log_likelihood = np.sum(np.log(denominator)) 
@@ -448,6 +449,8 @@ def _maximization(y, mu, cov, weight, responsibility, covariance_type="free",
         offset = y - new_mu[m]
         new_cov[m] = np.dot(responsibility[m] * offset.T, offset) \
                    / (effective_membership[m] - 1)
+        assert np.all(np.isfinite(new_mu[m]))
+        assert np.all(np.isfinite(new_cov[m]))
 
     # Ensure that the weights are normalized.
     new_weight /= np.sum(new_weight)
@@ -558,9 +561,9 @@ def _split_component(y, mu, cov, weight, responsibility, index,
 
     child_weight = child_effective_membership.T/child_effective_membership.sum()
 
-    # We will need these later.
+    # We will need these later.responsibility
     parent_weight = weight[index]
-    parent_responsibility = responsibility[index]
+    parent_responsibility = np.clip(responsibility[index], 1e-16, np.inf)
 
     # Calculate the initial log-likelihood
     # (don't update child responsibilities)
@@ -570,6 +573,7 @@ def _split_component(y, mu, cov, weight, responsibility, index,
     ll_dl = [(ll, dl)]
 
     while True:
+
 
         # Run the maximization step on the child components.
         child_mu, child_cov, child_weight = _maximize_child_components(
@@ -686,6 +690,7 @@ def _delete_component(y, mu, cov, weight, responsibility, index,
     perturbed_weight = np.delete(weight, index) / (1 - parent_weight)
     perturbed_responsibility = np.delete(responsibility, index, axis=0) \
                              / (1 - parent_responsibility)
+    perturbed_responsibility = np.clip(perturbed_responsibility, 0, 1)
 
     perturbed_mu = np.delete(mu, index, axis=0)
     perturbed_cov = np.delete(cov, index, axis=0)
@@ -704,6 +709,7 @@ def _delete_component(y, mu, cov, weight, responsibility, index,
             y, perturbed_mu, perturbed_cov, perturbed_weight,
             perturbed_responsibility, covariance_type, regularization,
             N_covpars)
+        assert np.all(np.isfinite(perturbed_cov))
 
         # Run the expectation step.
         perturbed_responsibility, ll, dl = _expectation(
@@ -731,6 +737,155 @@ def _delete_component(y, mu, cov, weight, responsibility, index,
 
     return (perturbed_mu, perturbed_cov, perturbed_weight, 
         perturbed_responsibility, meta, dl)
+
+
+def kullback_leibler_for_multivariate_normals(mu_a, cov_a, mu_b, cov_b):
+    r"""
+    Return the Kullback-Leibler distance from one multivariate normal
+    distribution with mean :math:`\mu_a` and covariance :math:`\Sigma_a`,
+    to another multivariate normal distribution with mean :math:`\mu_b` and 
+    covariance matrix :math:`\Sigma_b`. The two distributions are assumed to 
+    have the same number of dimensions, such that the Kullback-Leibler 
+    distance is
+
+    .. math::
+
+        D_{\mathrm{KL}}\left(\mathcal{N}_{a}||\mathcal{N}_{b}\right) = 
+            \frac{1}{2}\left(\mathrm{Tr}\left(\Sigma_{b}^{-1}\Sigma_{a}\right) + \left(\mu_{b}-\mu_{a}\right)^\top\Sigma_{b}^{-1}\left(\mu_{b} - \mu_{a}\right) - k + \ln{\left(\frac{\det{\Sigma_{b}}}{\det{\Sigma_{a}}}\right)}\right)
+
+
+    where :math:`k` is the number of dimensions and the resulting distance is 
+    given in units of nats.
+
+    .. warning::
+
+        It is important to remember that 
+        :math:`D_{\mathrm{KL}}\left(\mathcal{N}_{a}||\mathcal{N}_{b}\right) \neq D_{\mathrm{KL}}\left(\mathcal{N}_{b}||\mathcal{N}_{a}\right)`.
+
+
+    :param mu_a:
+        The mean of the first multivariate normal distribution.
+
+    :param cov_a:
+        The covariance matrix of the first multivariate normal distribution.
+
+    :param mu_b:
+        The mean of the second multivariate normal distribution.
+
+    :param cov_b:
+        The covariance matrix of the second multivariate normal distribution.
+    
+    :returns:
+        The Kullback-Leibler distance from distribution :math:`a` to :math:`b`
+        in units of nats. Dividing the result by :math:`\log_{e}2` will give
+        the distance in units of bits.
+    """
+
+    U, S, V = np.linalg.svd(cov_a)
+    Ca_inv = np.dot(np.dot(V.T, np.linalg.inv(np.diag(S))), U.T)
+
+    U, S, V = np.linalg.svd(cov_b)
+    Cb_inv = np.dot(np.dot(V.T, np.linalg.inv(np.diag(S))), U.T)
+
+    k = mu_a.size
+
+    offset = mu_b - mu_a
+    return 0.5 * np.sum([
+          np.trace(np.dot(Ca_inv, cov_b)),
+        + np.dot(offset.T, np.dot(Cb_inv, offset)),
+        - k,
+        + np.log(np.linalg.det(cov_b)/np.linalg.det(cov_a))
+    ])
+
+
+def _merge_component(y, mu, cov, weight, responsibility, index, 
+    covariance_type="free", regularization=0, N_covpars=None, threshold=1e-5,
+    **kwargs):
+    """
+    Merge a component from the mixture with its "closest" component, as
+    judged by the Kullback-Leibler distance.
+    """
+
+    # Initialize.
+    M = weight.size
+    N, D = y.shape
+    N_covpars = N_covpars or _component_covariance_parameters(D, covariance_type)
+    max_iterations = kwargs.get("max_sub_iterations", 10000)
+
+    # Calculate the KL distance to the other distributions.
+    D_kl = np.inf * np.ones(weight.size)
+    for m in range(M):
+        if m == index: continue
+        D_kl[m] = kullback_leibler_for_multivariate_normals(
+            mu[index], cov[index], mu[m], cov[m])
+
+    a_index = index
+    b_index = np.nanargmin(D_kl)
+
+    # Initialize.
+    perturbed_weight = np.sum(weight[[a_index, b_index]])
+    perturbed_responsibility = np.sum(responsibility[[a_index, b_index]], axis=0)
+    effective_membership_k = np.sum(perturbed_responsibility)
+
+    perturbed_mu_k = np.sum(perturbed_responsibility * y.T, axis=1) \
+                   / effective_membership_k
+
+    offset = y - perturbed_mu_k
+    perturbed_cov = np.dot(perturbed_responsibility * offset.T, offset) \
+                  / (effective_membership_k - 1)
+
+    # Delete the b-th component.
+    del_index = np.max([a_index, b_index])
+    keep_index = np.min([a_index, b_index])
+    mu = np.delete(mu, del_index, axis=0)
+    cov = np.delete(cov, del_index, axis=0)
+    weight = np.delete(weight, del_index, axis=0)
+    responsibility = np.delete(responsibility, del_index, axis=0)
+
+    mu[keep_index] = perturbed_mu_k
+    cov[keep_index] = perturbed_cov
+    weight[keep_index] = perturbed_weight
+    responsibility[keep_index] = perturbed_responsibility
+
+    # Calculate log-likelihood.
+    _, ll, dl = _expectation(y, mu, cov, weight, N_covpars)
+
+    iterations = 1
+    ll_dl = [(ll, dl)]
+
+    while True:
+
+        # Perform the maximization step.
+        mu, cov, weight = _maximization(
+            y, mu, cov, weight,
+            responsibility, covariance_type, regularization,
+            N_covpars)
+
+        # Run the expectation step.
+        responsibility, ll, dl = _expectation(
+            y, mu, cov, weight, N_covpars)
+
+        # Check for convergence.
+        prev_ll, prev_dl = ll_dl[-1]
+        relative_delta_ll = np.abs((ll - prev_ll)/prev_ll)
+
+        ll_dl.append([ll, dl])
+        iterations += 1
+
+        if relative_delta_ll <= threshold \
+        or iterations >= max_iterations:
+            break
+
+
+    meta = dict(warnflag=iterations >=max_iterations)
+    if meta["warnflag"]:
+        logger.warn("Maximum number of E-M iterations reached ({}) "\
+                    "when merging components {} and {}".format(
+                        max_iterations, a_index, b_index))
+
+    meta["log-likelihood"] = ll
+
+    return (mu, cov, weight, responsibility, meta, dl)
 
 
 class GaussianMixtureEstimator(estimator.Estimator):
@@ -881,6 +1036,8 @@ class GaussianMixtureEstimator(estimator.Estimator):
                 r = (p_mu, p_cov, p_weight, p_responsibility, p_meta, p_dl) \
                   = _split_component(y, mu, cov, weight, responsibility, m)
 
+                print("split", iterations, m, p_dl)
+
                 # Keep best split component.
                 if p_dl < best_perturbations["split"][-1]:
                     best_perturbations["split"] = [m] + list(r)
@@ -908,6 +1065,7 @@ class GaussianMixtureEstimator(estimator.Estimator):
             operation, bp \
                 = min(best_perturbations.items(), key=lambda x: x[1][-1])
             b_m, b_mu, b_cov, b_weight, b_responsibility, b_meta, b_dl = bp
+
 
             if mindl > b_dl:
                 # Set the new state as the best perturbation.
