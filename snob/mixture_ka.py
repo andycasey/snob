@@ -385,12 +385,10 @@ def _maximize_child_components(y, mu, cov, weight, responsibility,
     
 
 
-def _maximization(y, mu, cov, weight, responsibility, component_index,
-    covariance_type="free", regularization=0, N_covpars=None, 
-    responsibility_weight=1):
+def _maximization(y, mu, cov, weight, responsibility, covariance_type="free", 
+    regularization=0, N_covpars=None):
     r"""
-    Perform the maximization step of the expectation-maximization algorithm on
-    a single component.
+    Perform the maximization step of the expectation-maximization algorithm.
 
     :param y:
         The data values, :math:`y`.
@@ -409,9 +407,6 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
         The responsibility matrix for all :math:`N` observations being
         partially assigned to each :math:`K` component.
 
-    :param component_index:
-        The index of the component to maximize.
-
     :param covariance_type: [optional]
         The structure of the covariance matrix for individual components.
         The available options are: `free` for a free covariance matrix,
@@ -429,39 +424,37 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
         given, this will be calculated, but it's (slightly) faster to include
         this value.
 
-    :param responsibility_weight: [optional]
-        An optional array of length :math:`N` weights to apply to the 
-        responsibilities. This is useful when maximizing child components that
-        need to be weighted by the parent component. The responsibility weight
-        only enters at the calculation of the new component parameters.
-
     :returns:
         A four-length tuple containing: a new estimate of the component means,
         the component covariance matrices, the relative weight of each
         component, and the responsibility matrix.
     """
 
-    K = weight.size
+    M = weight.size
     N, D = y.shape
     N_covpars = N_covpars or _component_covariance_parameters(D, covariance_type)
 
     # Update the weights.
     effective_membership = np.sum(responsibility, axis=1)
-    weight = (effective_membership[component_index] + 0.5)/(N + K/2.0)
+    new_weight = (effective_membership + 0.5)/(N + M/2.0)
 
-    w_responsibility = responsibility_weight * responsibility
-    w_effective_membership_k = np.sum(w_responsibility[component_index])
-    
-    mu_k = np.sum(w_responsibility[component_index] * y.T, axis=1) \
-         / w_effective_membership_k
+    # Update means and covariance matrices.
+    new_mu = np.zeros_like(mu)
+    new_cov = np.zeros_like(cov)
+    for m in range(M):
+        new_mu[m] = np.sum(responsibility[m] * y.T, axis=1) \
+              / effective_membership[m]
 
+        offset = y - new_mu[m]
+        new_cov[m] = np.dot(responsibility[m] * offset.T, offset) \
+                   / (effective_membership[m] - 1)
 
-    offset = y - mu_k
-    cov_k = np.dot(w_responsibility[component_index] * offset.T, offset) \
-          / (w_effective_membership_k - 1)
+    # Ensure that the weights are normalized.
+    new_weight /= np.sum(new_weight)
 
-    # Update parameters.
+    return (new_mu, new_cov, new_weight)
 
+    raise a
 
 
     raise a
@@ -536,6 +529,7 @@ def _split_component(y, mu, cov, weight, responsibility, index,
     # TODO: returns?
     """
 
+    M = weight.size
     N, D = y.shape
     N_covpars = N_covpars or _component_covariance_parameters(D, covariance_type)
     max_iterations = kwargs.get("max_sub_iterations", 10000)
@@ -547,8 +541,6 @@ def _split_component(y, mu, cov, weight, responsibility, index,
     
     # Responsibilities are initialized by allocating the data points to the 
     # closest of the two means.
-    parent_responsibility = responsibility[index]
-
     child_responsibility = np.vstack([
         np.sum(np.abs(y - child_mu[0]), axis=1),
         np.sum(np.abs(y - child_mu[1]), axis=1)
@@ -565,6 +557,10 @@ def _split_component(y, mu, cov, weight, responsibility, index,
                      / (child_effective_membership[k] - 1)
 
     child_weight = child_effective_membership.T/child_effective_membership.sum()
+
+    # We will need these later.
+    parent_weight = weight[index]
+    parent_responsibility = responsibility[index]
 
     # Calculate the initial log-likelihood
     # (don't update child responsibilities)
@@ -613,11 +609,61 @@ def _split_component(y, mu, cov, weight, responsibility, index,
     # An E-M is finally carried out on the combined M + 1 components to
     # estimate the parameters of M' and result in an optimized 
     # (M + 1)-component mixture.
-    raise NotImplementedError
 
+    # Update the component weights.
+    # Note that the child A mixture will remain in index `index`, and the
+    # child B mixture will be appended to the end.
 
-    return (child_mu, child_cov, child_weight, child_responsibility, ll, dl, meta)
-    
+    if M > 1:
+
+        weight = np.hstack([weight, [parent_weight]])
+        weight[index] = parent_weight * child_weight[0]
+        weight[-1]    = parent_weight * child_weight[1]
+
+        # Update the responsibility matrix.
+        responsibility = np.vstack([responsibility, [parent_responsibility]])
+        responsibility[index] = parent_responsibility * child_responsibility[0]
+        responsibility[-1]    = parent_responsibility * child_responsibility[1]
+
+        mu = np.vstack([mu, [mu[index]]])
+        mu[index] = child_mu[0]
+        mu[-1] = child_mu[1]
+
+        cov = np.vstack([cov, [cov[index]]])
+        cov[index] = child_cov[0]
+        cov[-1] = child_cov[1]
+
+        # Run expectation-maximization on the M + 1 component mixture.
+        while True:
+
+            # Run the maximization step.
+            mu, cov, weight = _maximization(y, mu, cov, weight, responsibility, 
+                covariance_type, regularization, N_covpars)
+
+            # Run the expectation step.
+            responsibility, ll, dl = _expectation(y, mu, cov, weight, N_covpars)
+
+            # Check for convergence.
+            prev_ll, prev_dl = ll_dl[-1]
+            relative_delta_ll = np.abs((ll - prev_ll)/prev_ll)
+
+            ll_dl.append([ll, dl])
+
+            if relative_delta_ll <= threshold:
+                break
+
+    else:
+        # Simple case where we don't have to re-run E-M because there was only
+        # one component to split.
+        mu = child_mu
+        cov = child_cov
+        weight = child_weight
+        responsibility = child_responsibility
+
+    meta["log-likelihood"] = ll
+
+    return (mu, cov, weight, responsibility, meta, dl)
+
 
 class GaussianMixtureEstimator(estimator.Estimator):
 
@@ -742,14 +788,15 @@ class GaussianMixtureEstimator(estimator.Estimator):
         # TODO: more docs and returns
         """
 
-        N, D = self.y.shape
+        y = self._y # for convenience.
+        N, D = y.shape
         N_cp = _component_covariance_parameters(D, self.covariance_type)
 
         # Initialize as a one-component mixture.
-        mu, cov, weight = _initialize(self.y)
+        mu, cov, weight = _initialize(y)
 
-
-        responsibility, ll, mindl = _expectation(self.y, mu, cov, weight, N_cp)
+        iterations = 1
+        responsibility, ll, mindl = _expectation(y, mu, cov, weight, N_cp)
 
         ll_dl = [(ll, mindl)]
         op_params = [mu, cov, weight]
@@ -757,95 +804,56 @@ class GaussianMixtureEstimator(estimator.Estimator):
         while True:
 
             M = weight.size
-            
+            best_perturbations = defaultdict(lambda: [np.inf])
+
+            print("OUTER", iterations, M, mindl)
+
             # Exhaustively split all components.
-            splits = []
             for m in range(M):
-                (c_mu, c_cov, c_weight, c_responsibility, c_ll, c_dl, c_meta) \
-                    = _split_component(self.y, mu, cov, weight, responsibility, m)
-                splits.append([m, c_ll, c_dl])
+                r = (p_mu, p_cov, p_weight, p_responsibility, p_meta, p_dl) \
+                  = _split_component(y, mu, cov, weight, responsibility, m)
 
-
+                # Keep best split component.
+                if p_dl < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [m] + list(r)
+            
             if M > 1:
-                raise NotImplementedError
                 # Exhaustively delete all components.
-                deletes = []
-                for k in range(K):
-                    deletes.append(_delete_component(y, mu, cov, weight, k))
+                for m in range(M):
+                    r = (p_mu, p_cov, p_weight, p_responsibility, p_meta, p_dl) \
+                      = _delete_component(y, mu, cov, weight, responsibility, m)
 
-                # Get best delete.
-
+                    # Keep best deleted component.
+                    if p_dl < best_perturbations["delete"][-1]:
+                        best_perturbations["delete"] = [m] + list(r)
+                    
                 # Exhaustively merge all components.
-                merges = []
-                for k in range(K):
-                    merges.append(_merge_component(y, mu, cov, weight, k))
+                for m in range(M):
+                    r = (p_mu, p_cov, p_weight, p_responsibility, p_meta, p_dl) \
+                      = _merge_component(y, mu, cov, weight, responsibility, m)
 
-                # Get best perturbation
-
+                    # Keep best merged component.
+                    if p_dl < best_perturbations["merge"][-1]:
+                        best_perturbations["merge"] = [m] + list(r)
 
             # Get best perturbation.
+            operation, bp \
+                = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_m, b_mu, b_cov, b_weight, b_responsibility, b_meta, b_dl = bp
 
-
-
-            raise NotImplementedError("yo")
-
-            keep_splitting_components = True
-            while keep_splitting_components:
-
-                k = 0
-                # Can't use a for loop here because K can become smaller by
-                # killing away components.
-                while weight.size > k:
-
-                    # Run maximization step on a single component.
-
-                    # TODO: This could be parallelised, and then collect
-                    #       components that won't be killed.
-
-                    #       We would just need to store the parameters later
-                    #       and update the responsibilities separately.
-                    mu, cov, weight, R = _maximization(
-                        self.y, mu, cov, weight, R, k,
-                        self.covariance_type, self.regularization, N_cp)
-
-
-                    # If the current component gets killed,
-                    # we have some paperwork to do.
-                    kill_this_component = (weight[k] == 0)
-                    if kill_this_component:
-                        mu, cov, weight, R \
-                            = _kill_component(self.y, mu, cov, weight, k)
-                        # Leave k because we just killed the k-th component.
-
-                    else:
-                        # Iterate to the next component.
-                        k += 1
-
-                # Run expectation step.
-                R, ll, dl = _expectation(self.y, mu, cov, weight, N_cp)
-                ll_dl.append([ll, dl])
-
-                # Compute change in the log likelihood to see if we should stop
-                relative_delta_ll = (ll_dl[-1][0] - ll_dl[-2][0])/ll_dl[-2][0]
-                if np.abs(relative_delta_ll) <= self._threshold \
-                or weight.size == self._k_min:
-                    keep_splitting_components = False
-
-            if ll_dl[-1][1] < mindl:
-                op_params = [mu, cov, weight]
-                mindl = ll_dl[-1][1]
-
-            # Should we kill off the smallest component and try again?
-            if weight.size > self._k_min:
-                smallest_component_index = np.argmin(weight)
-                mu, cov, weight, R = _kill_component(
-                    self.y, mu, cov, weight, smallest_component_index)
-
-                R, ll, dl = _expectation(self.y, mu, cov, weight, N_cp)
-                ll_dl.append([ll, dl])
+            if mindl > b_dl:
+                # Set the new state as the best perturbation.
+                iterations += 1
+                mindl = b_dl
+                mu, cov, weight, responsibility \
+                    = (b_mu, b_cov, b_weight, b_responsibility)
 
             else:
-                break # because weight.size = K = K_{min}
+                # None of the perturbations were better than what we had.
+                break
+
+
+        raise NotImplementedError("yo")
 
         index = np.argmin(np.array(ll_dl)[:, 1])
         ll, dl = ll_dl[index]
