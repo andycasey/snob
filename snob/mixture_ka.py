@@ -11,16 +11,17 @@ __all__ = ["GaussianMixtureEstimator"]
 import logging
 import numpy as np
 import scipy
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
 from . import estimator
 
 
-def _number_of_covariance_parameters(D, covariance_type):
+def _component_covariance_parameters(D, covariance_type):
     r"""
-    Return the number of parameters, given the number of observed dimensions
-    and the covariance type.
+    Return the number of parameters per Gaussian component, given the number 
+    of observed dimensions and the covariance type.
 
     :param D:
         The number of dimensions per data point.
@@ -92,6 +93,62 @@ def _evaluate_responsibilities(y, mu, cov):
     return responsibility
 
 
+def _responsibility_matrix(y, mu, cov, weight):
+    r"""
+    Return the responsibility matrix,
+
+    .. math::
+
+        r_{ij} = \frac{w_{j}f\left(x_i;\theta_j\right)}{\sum_{k=1}^{K}w_k}f\left(x_i;\theta_k\right)}
+
+    where :math:`r_{ij}` denotes the conditional probability of a datum
+    :math:`x_i` belonging to the :math:`j`th component. The effective
+    membership associated with each component is then given by
+
+    .. math::
+
+        n_j = \sum_{i=1}^{N}r_{ij} & \textrm{and} & \sum_{j=1}^{K}n_{j} = N
+
+    :param y:
+        The data values, :math:`y`.
+
+    :param mu:
+        The mean values of the :math:`K` multivariate normal distributions.
+
+    :param cov:
+        The covariance matrices of the :math:`K` multivariate normal
+        distributions.
+
+    :param weight:
+        The current estimates of the relative mixing weight.
+
+    :returns:
+        The unnormalized responsibility matrix (the numerator in the equation
+        above), and the normalization constants (the denominator in the
+        equation above).
+
+
+    """
+
+    N, D = y.shape
+    K = mu.shape[0]
+
+    scalar = (2 * np.pi)**(-D/2.0)
+    numerator = np.zeros((K, N))
+    for k, (mu_k, cov_k) in enumerate(zip(mu, cov)):
+
+        U, S, V = np.linalg.svd(cov_k)
+        Cinv = np.dot(np.dot(V.T, np.linalg.inv(np.diag(S))), U.T)
+
+        O = y - mu_k
+        numerator[k] \
+            = scalar * weight[k] * np.linalg.det(cov_k)**(-0.5) \
+                     * np.exp(-0.5 * np.sum(O.T * np.dot(Cinv, O.T), axis=0))
+
+    denominator = np.sum(numerator, axis=0)
+    return (numerator, denominator)
+
+    
 def _kill_component(y, mu, cov, weight, component_index):
     r"""
     Kill off a component, and return the new estimates of the component
@@ -133,7 +190,32 @@ def _kill_component(y, mu, cov, weight, component_index):
     return (mu, cov, weight, responsibility)
 
 
-def _initialize(y, K, scalar=0.10):
+def _initialize(y):
+    r"""
+    Return initial estimates of the parameters.
+
+    :param y:
+        The data values, :math:`y`.
+
+    :param scalar: [optional]
+        The scalar to apply (multiplicatively) to the mean of the
+        variances along each dimension of the data at initialization time.
+
+    :returns:
+        A three-length tuple containing the initial (multivariate) mean,
+        the covariance matrix, and the relative weight.
+    """
+
+    weight = np.ones((1, 1))
+
+    N, D = y.shape
+    mu = np.mean(y, axis=0).reshape((1, -1))
+    cov = np.cov(y.T).reshape((1, D, D))
+    
+    return (mu, cov, weight)
+
+
+def _old_initialize(y, K=5, scalar=0.10):
     r"""
     Return initial estimates of the parameters of the :math:`K` Gaussian
     components.
@@ -192,14 +274,24 @@ def _expectation(y, mu, cov, weight, N_covpars):
         the log likelihood, and the change in message length.
     """
 
+    #R = _evaluate_responsibilities(y, mu, cov)
+    numerator, denominator = _responsibility_matrix(y, mu, cov, weight)
+    responsibility = numerator/denominator
+
+    # Eq. 40 omitting -Nd\log\eps
+    log_likelihood = np.sum(np.log(denominator)) 
+
+    # TODO: check delta_length.
     N, D = y.shape
     K = weight.size
-
-    responsibility = _evaluate_responsibilities(y, mu, cov)
-    log_likelihood = np.sum(np.log(np.sum(responsibility * weight, axis=0)))
     delta_length = -log_likelihood \
         + (N_covpars/2.0 * np.sum(np.log(weight))) \
         + (N_covpars/2.0 + 0.5) * K * np.log(N)
+
+    # I(K) = K\log{2} + constant
+
+    # Eq. 38
+    # I(w) = (M-1)/2 * log(N) - 0.5\sum_{k=1}^{K}\log{w_k} - (K - 1)!
 
     return (responsibility, log_likelihood, delta_length)
 
@@ -221,8 +313,81 @@ def _score_function(members, N, N_covpars):
     return np.max([(members - N_covpars/2.0)/N, 0])
 
 
+def _maximize_child_components(y, mu, cov, weight, responsibility, 
+    parent_responsibility, covariance_type="free", regularization=0, 
+    N_covpars=None):
+    r"""
+    Perform the maximization step of the expectation-maximization algorithm on
+    two child components.
+
+    :param y:
+        The data values, :math:`y`.
+
+    :param mu:
+        The current estimates of the Gaussian mean values.
+
+    :param cov:
+        The current estimates of the Gaussian covariance matrices.
+
+    :param weight:
+        The current best estimates of the relative weight of all :math:`K`
+        components.
+
+    :param responsibility:
+        The responsibility matrix for all :math:`N` observations being
+        partially assigned to each :math:`K` component.
+
+    :param parent_responsibility:
+        An array of length :math:`N` giving the parent component 
+        responsibilities.
+
+    :param covariance_type: [optional]
+        The structure of the covariance matrix for individual components.
+        The available options are: `free` for a free covariance matrix,
+        `diag` for a diagonal covariance matrix, `tied` for a common covariance
+        matrix for all components, `tied_diag` for a common diagonal
+        covariance matrix for all components (default: `free`).
+
+    :param regularization: [optional]
+        A regularizing factor to apply to covariance matrices. In very small
+        samples, a regularization factor may be needed to apply to the
+        diagonal of the covariance matrices (default: `0`).
+
+    :param N_covpars: [optional]
+        The number of parameters due to the covariance structure. If `None` is
+        given, this will be calculated, but it's (slightly) faster to include
+        this value.
+    """
+
+    M = weight.size # Should be 2, but let's allow for bigger splits.
+    N, D = y.shape
+    N_covpars = N_covpars or _component_covariance_parameters(D, covariance_type)
+
+    # Update the weights.
+    effective_membership = np.sum(responsibility, axis=1)
+    new_weight = (effective_membership + 0.5)/(N + M/2.0)
+
+    w_responsibility = parent_responsibility * responsibility
+    w_effective_membership = np.sum(w_responsibility, axis=1)
+
+    new_mu = np.zeros_like(mu)
+    new_cov = np.zeros_like(cov)
+    for m in range(M):
+        new_mu[m] = np.sum(w_responsibility[m] * y.T, axis=1) \
+                  / w_effective_membership[m]
+
+        offset = y - new_mu[m]
+        new_cov[m] = np.dot(w_responsibility[m] * offset.T, offset) \
+                   / (w_effective_membership[m] - 1)
+
+    return (new_mu, new_cov, new_weight)
+
+    
+
+
 def _maximization(y, mu, cov, weight, responsibility, component_index,
-    covariance_type="free", regularization=0, N_covpars=None):
+    covariance_type="free", regularization=0, N_covpars=None, 
+    responsibility_weight=1):
     r"""
     Perform the maximization step of the expectation-maximization algorithm on
     a single component.
@@ -264,6 +429,12 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
         given, this will be calculated, but it's (slightly) faster to include
         this value.
 
+    :param responsibility_weight: [optional]
+        An optional array of length :math:`N` weights to apply to the 
+        responsibilities. This is useful when maximizing child components that
+        need to be weighted by the parent component. The responsibility weight
+        only enters at the calculation of the new component parameters.
+
     :returns:
         A four-length tuple containing: a new estimate of the component means,
         the component covariance matrices, the relative weight of each
@@ -272,11 +443,34 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
 
     K = weight.size
     N, D = y.shape
-    N_covpars = N_covpars or _number_of_covariance_parameters(D, covariance_type)
+    N_covpars = N_covpars or _component_covariance_parameters(D, covariance_type)
+
+    # Update the weights.
+    effective_membership = np.sum(responsibility, axis=1)
+    weight = (effective_membership[component_index] + 0.5)/(N + K/2.0)
+
+    w_responsibility = responsibility_weight * responsibility
+    w_effective_membership_k = np.sum(w_responsibility[component_index])
+    
+    mu_k = np.sum(w_responsibility[component_index] * y.T, axis=1) \
+         / w_effective_membership_k
+
+
+    offset = y - mu_k
+    cov_k = np.dot(w_responsibility[component_index] * offset.T, offset) \
+          / (w_effective_membership_k - 1)
+
+    # Update parameters.
+
+
+
+    raise a
 
     indices = responsibility * weight
     memberships = indices / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
     normalization_constant = 1.0/np.sum(memberships[component_index])
+
+    raise a
 
     aux = np.kron(memberships[component_index], np.ones((D, 1))).T * y
     mu_k = normalization_constant * np.sum(aux, axis=0)
@@ -311,7 +505,7 @@ def _maximization(y, mu, cov, weight, responsibility, component_index,
     return (mu, cov, weight, responsibility)
 
 
-def _split_component(y, mu, cov, weight, responsibility, component_index, 
+def _split_component(y, mu, cov, weight, responsibility, index, 
     covariance_type="free", regularization=0, N_covpars=None, threshold=1e-5,
     **kwargs):
     """
@@ -332,7 +526,7 @@ def _split_component(y, mu, cov, weight, responsibility, component_index,
     :param weight:
         The current estimates of the relative mixing weight.
 
-    :param component_index:
+    :param index:
         The index of the component to be split.
 
     :param N_covpars:
@@ -342,100 +536,88 @@ def _split_component(y, mu, cov, weight, responsibility, component_index,
     # TODO: returns?
     """
 
-    K = weight.size
     N, D = y.shape
-    N_covpars = N_covpars or _number_of_covariance_parameters(D, covariance_type)
-
+    N_covpars = N_covpars or _component_covariance_parameters(D, covariance_type)
     max_iterations = kwargs.get("max_sub_iterations", 10000)
 
     # Compute the direction of maximum variance of the parent component, and
     # locate two points which are one standard deviation away on either side.
-
-    # Calculate the weighted covariance matrix.
-
-    indices = responsibility * weight
-    memberships = indices / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
-    normalization_constant = 1.0/np.sum(memberships[component_index])
-
-    aux = np.kron(memberships[component_index], np.ones((D, 1))).T * y
-    mu_k = normalization_constant * np.sum(aux, axis=0)
-
-    if covariance_type in ("free", "tied"):
-        emu = mu_k.reshape(-1, 1)
-        cov_k = normalization_constant * np.dot(aux.T, y) \
-              - np.dot(emu, emu.T) \
-              + regularization * np.eye(D) 
-
-    else:
-        cov_k = normalization_constant * np.diag(np.sum(aux * y, axis=0)) \
-              - np.diag(mu_k**2)
-
-    # Pick two new initial means at one standard deviation along the
-    # principal component of the variance.
-    _u, _s, v = scipy.linalg.svd(cov_k)
-
-    sigma = np.sqrt(np.diag(cov_k))
-    mu_a = mu_k + v[0] * sigma
-    mu_b = mu_k - v[0] * sigma
-
-    p_mu = np.vstack([mu, [mu_b]])
-    p_mu[component_index] = mu_a
-
-    # Determine memberships (to the two components) based on their Euclidian
-    # distance to the mean of each component.
-    w_a = np.sum(np.abs(y - mu_a), axis=1)
-    w_b = np.sum(np.abs(y - mu_b), axis=1)
-    f = np.sum(w_a)/np.sum(w_a + w_b)
-
-    p_weight = np.vstack([weight, 0])
-    p_weight[component_index] = f * weight[component_index]
-    p_weight[-1] = (1 - f) * weight[component_index]
-
-    p_cov = np.vstack([cov, [cov[component_index]]])
-
-    # Run the expectation step on all new components.
-    R, ll, dl = _expectation(y, p_mu, p_cov, p_weight, N_covpars)
+    U, S, V = np.linalg.svd(cov[index])
+    child_mu = mu[index] + np.vstack([+V[0], -V[0]]) * np.diag(cov[index])**0.5
     
+    # Responsibilities are initialized by allocating the data points to the 
+    # closest of the two means.
+    parent_responsibility = responsibility[index]
+
+    child_responsibility = np.vstack([
+        np.sum(np.abs(y - child_mu[0]), axis=1),
+        np.sum(np.abs(y - child_mu[1]), axis=1)
+    ])
+    child_responsibility /= np.sum(child_responsibility, axis=0)
+
+    # Calculate the child covariance matrices.
+    child_cov = np.zeros((2, D, D))
+    child_effective_membership = np.sum(child_responsibility, axis=1)
+
+    for k in (0, 1):
+        offset = y - child_mu[k]
+        child_cov[k] = np.dot(child_responsibility[k] * offset.T, offset) \
+                     / (child_effective_membership[k] - 1)
+
+    child_weight = child_effective_membership.T/child_effective_membership.sum()
+
+    # Calculate the initial log-likelihood
+    # (don't update child responsibilities)
+    _, ll, dl = _expectation(y, child_mu, child_cov, child_weight, N_covpars)
+
     iterations = 1
     ll_dl = [(ll, dl)]
 
     while True:
 
+        # Run the maximization step on the child components.
+        child_mu, child_cov, child_weight = _maximize_child_components(
+            y, child_mu, child_cov, child_weight, child_responsibility,
+            parent_responsibility, covariance_type, regularization, N_covpars)
 
-        # Run the maximization step on the perturbed components.
-        for k in (component_index, -1):
-            #if component_index == 3 and iterations == 3 and k == 3:
-            #    raise a
+        # Run the expectation step on the updated child components.
+        child_responsibility, ll, dl = _expectation(
+            y, child_mu, child_cov, child_weight, N_covpars)
+        
+        # Check for convergence.
+        prev_ll, prev_dl = ll_dl[-1]
+        relative_delta_ll = (ll - prev_ll)/prev_ll
 
-            p_mu, p_cov, p_weight, R = _maximization(
-                y, p_mu, p_cov, p_weight, R, k,
-                covariance_type, regularization, N_covpars)
-
-            print(iterations, k, p_weight)
-
-        R, ll, dl = _expectation(y, p_mu, p_cov, p_weight, N_covpars)
-
-        # Book-keeping
+        # Book-keeping.
         iterations += 1
         ll_dl.append([ll, dl])
 
-        # Check for convergence.
-        relative_delta_ll = (ll_dl[-1][0] - ll_dl[-2][0])/ll_dl[-2][0]
-        print(iterations, relative_delta_ll)
+        print(iterations, child_weight, relative_delta_ll, ll, dl)
+        
         assert np.isfinite(relative_delta_ll)
+        
         if np.abs(relative_delta_ll) <= threshold \
         or iterations >= max_iterations:
             break
 
-    if iterations >= max_iterations:
+    meta = dict(warnflag=iterations >=max_iterations)
+    if meta["warnflag"]:
         logger.warn("Maximum number of E-M iterations reached ({}) "\
                     "when splitting component index {}".format(
                         max_iterations, component_index))
 
-    metadata = {}
+    # After the chld mixture is locally optimized, we need to integrate it
+    # with the untouched M - 1 components to result in a M + 1 component
+    # mixture M'.
 
-    return (p_mu, p_cov, p_weight, R, ll, dl, metadata)
+    # An E-M is finally carried out on the combined M + 1 components to
+    # estimate the parameters of M' and result in an optimized 
+    # (M + 1)-component mixture.
+    raise NotImplementedError
 
+
+    return (child_mu, child_cov, child_weight, child_responsibility, ll, dl, meta)
+    
 
 class GaussianMixtureEstimator(estimator.Estimator):
 
@@ -551,28 +733,22 @@ class GaussianMixtureEstimator(estimator.Estimator):
         return self._k_min
 
 
-    def optimize(self, scalar=0.1):
+    def optimize(self):
         r"""
-        Minimize the message length (cost function) by a variant of
-        expectation maximization, as described in Figueiredo and Jain (2002).
+        Minimize the message length of a mixture of Gaussians, using the
+        score function and perturbation search algorithm described by
+        Kasarapu & Allison (2015).
 
-        :param scalar: [optional]
-            The scalar to apply (multiplicatively) to the mean of the
-            variances along each dimension of the data at initialization time.
-
-        :returns:
-            A two-length tuple containing the optimized mixture parameters
-            `(mu, cov, fractions)` and the log-likelihood for that set of
-            mixtures.
+        # TODO: more docs and returns
         """
 
         N, D = self.y.shape
-        N_cp = _number_of_covariance_parameters(D, self.covariance_type)
+        N_cp = _component_covariance_parameters(D, self.covariance_type)
 
         # Initialize as a one-component mixture.
-        mu, cov, weight = _initialize(self.y, 5, scalar)
+        mu, cov, weight = _initialize(self.y)
 
-        # Calculate initial log-likelihood and message length offset
+
         responsibility, ll, mindl = _expectation(self.y, mu, cov, weight, N_cp)
 
         ll_dl = [(ll, mindl)]
@@ -580,42 +756,34 @@ class GaussianMixtureEstimator(estimator.Estimator):
 
         while True:
 
-            # Here I use K to specify the number of components to keep the
-            # same nomenclature (and variables) as F & J (2002).
-            # K & A (2015) use M to specify the number of components.
-
-            K = weight.size
-
-            import matplotlib.pyplot as plt
-            fig, ax = plt.subplots()
-            ax.scatter(self.y.T[0], self.y.T[1], c=responsibility[0])
+            M = weight.size
+            
             # Exhaustively split all components.
             splits = []
-            for k in range(K):
-                #(p_mu, p_cov, p_weight, R, ll, dl, metadata)
+            for m in range(M):
+                (c_mu, c_cov, c_weight, c_responsibility, c_ll, c_dl, c_meta) \
+                    = _split_component(self.y, mu, cov, weight, responsibility, m)
+                splits.append([m, c_ll, c_dl])
 
-                (p_mu, p_cov, p_weight, R2, ll, dl, metadata) \
-                    = _split_component(self.y, mu, cov, weight, responsibility, k)
-                splits.append([k, ll, dl])
 
-            raise a
+            if M > 1:
+                raise NotImplementedError
+                # Exhaustively delete all components.
+                deletes = []
+                for k in range(K):
+                    deletes.append(_delete_component(y, mu, cov, weight, k))
 
-            # Get best split
+                # Get best delete.
 
-            # Exhaustively delete all components.
-            deletes = []
-            for k in range(K):
-                deletes.append(_delete_component(y, mu, cov, weight, k))
+                # Exhaustively merge all components.
+                merges = []
+                for k in range(K):
+                    merges.append(_merge_component(y, mu, cov, weight, k))
 
-            # Get best delete.
+                # Get best perturbation
 
-            # Exhaustively merge all components.
-            merges = []
-            for k in range(K):
-                merges.append(_merge_component(y, mu, cov, weight, k))
 
-            # Get best perturbation
-
+            # Get best perturbation.
 
 
 
