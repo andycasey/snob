@@ -46,53 +46,6 @@ def _component_covariance_parameters(D, covariance_type):
         raise ValueError("unknown covariance type '{}'".format(covariance_type))
 
 
-def _evaluate_responsibility(y, mu, cov):
-    r"""
-    Return the distance between the data and a multivariate normal distribution.
-
-    :param y:
-        The data values, :math:`y`.
-
-    :param mu:
-        The mean values of the multivariate normal distribution.
-
-    :param cov:
-        The covariance matrix of the multivariate normal distribution.
-    """
-
-    N, D = y.shape
-    Cinv = np.linalg.inv(cov)
-    scale = (2 * np.pi)**(-D/2.0) * np.linalg.det(cov)**(-0.5)
-    d = y - mu
-    foo =  scale * np.exp(-0.5 * np.sum(d.T * np.dot(Cinv, d.T), axis=0))
-    assert np.isfinite(foo).all()
-    return foo
-
-def _evaluate_responsibilities(y, mu, cov):
-    r"""
-    Evaluate the responsibilities of :math:`K` components to the data.
-
-    :param y:
-        The data values, :math:`y`.
-
-    :param mu:
-        The mean values of the :math:`K` multivariate normal distributions.
-
-    :param cov:
-        The covariance matrices of the :math:`K` multivariate normal
-        distributions.
-
-    :returns:
-        The responsibility matrix.
-    """
-
-    K, N = (mu.shape[0], y.shape[0])
-    responsibility = np.zeros((K, N))
-    for k, (mu_k, cov_k) in enumerate(zip(mu, cov)):
-        responsibility[k] = _evaluate_responsibility(y, mu_k, cov_k)
-    return responsibility
-
-
 def _responsibility_matrix(y, mu, cov, weight, small=1e-16):
     r"""
     Return the responsibility matrix,
@@ -215,37 +168,6 @@ def _initialize(y):
     return (mu, cov, weight)
 
 
-def _old_initialize(y, K=5, scalar=0.10):
-    r"""
-    Return initial estimates of the parameters of the :math:`K` Gaussian
-    components.
-
-    :param y:
-        The data values, :math:`y`.
-
-    :param K:
-        The number of Gaussian mixtures.
-
-    :param scalar: [optional]
-        The scalar to apply (multiplicatively) to the mean of the
-        variances along each dimension of the data at initialization time.
-
-    :returns:
-        A three-length tuple containing the :math:`K` initial (multivariate)
-        means, the :math:`K` covariance matrices, and the relative weights of
-        each component.
-    """
-
-    N, D = y.shape
-    random_indices = np.random.choice(np.arange(N), size=K, replace=False)
-
-    mu = y[random_indices]
-    cov = np.eye(D) * scalar * np.max(np.diag(np.cov(y.T)))
-    cov = np.tile(cov, (K, 1)).reshape((K, D, D))
-    weight = (1.0/K) * np.ones((K, 1))
-
-    return (mu, cov, weight)
-
 
 def _expectation(y, mu, cov, weight, N_covpars):
     r"""
@@ -296,22 +218,6 @@ def _expectation(y, mu, cov, weight, N_covpars):
 
     return (responsibility, log_likelihood, delta_length)
 
-
-def _score_function(members, N, N_covpars):
-    r"""
-    Return the score function (unnormalized weight) for a single component,
-    as defined by Figueriedo & Jain (2002).
-
-    :param members:
-        The estimated number of members (total responsibility) for a component.
-
-    :param N:
-        The number of observations.
-
-    :param N_covpars:
-        The number of parameters due to the covariance structure.
-    """
-    return np.max([(members - N_covpars/2.0)/N, 0])
 
 
 def _maximize_child_components(y, mu, cov, weight, responsibility, 
@@ -456,49 +362,6 @@ def _maximization(y, mu, cov, weight, responsibility, covariance_type="free",
     new_weight /= np.sum(new_weight)
 
     return (new_mu, new_cov, new_weight)
-
-    raise a
-
-
-    raise a
-
-    indices = responsibility * weight
-    memberships = indices / np.kron(np.ones((K, 1)), np.sum(indices, axis=0))
-    normalization_constant = 1.0/np.sum(memberships[component_index])
-
-    raise a
-
-    aux = np.kron(memberships[component_index], np.ones((D, 1))).T * y
-    mu_k = normalization_constant * np.sum(aux, axis=0)
-
-    if covariance_type in ("free", "tied"):
-        emu = mu_k.reshape(-1, 1)
-        cov_k = normalization_constant * np.dot(aux.T, y) \
-              - np.dot(emu, emu.T) \
-              + regularization * np.eye(D)
-    else:
-        cov_k = normalization_constant * np.diag(np.sum(aux * y, axis=0)) \
-              - np.diag(mu_k**2)
-
-    # Apply score function.
-    print("warning; score function")
-    unnormalized_weight_k \
-        = _score_function(np.sum(memberships[component_index]), N, N_covpars)
-    
-    # Update parameters.
-    # TODO: Create copy of mu, etc?
-    mu[component_index] = mu_k
-    cov[component_index] = cov_k
-    weight[component_index] = unnormalized_weight_k
-
-
-    # Re-normalize the weights.
-    weight = weight / np.sum(weight)
-
-    # Update responsibility matrix for this component.
-    responsibility[component_index] = _evaluate_responsibility(y, mu_k, cov_k)
-
-    return (mu, cov, weight, responsibility)
 
 
 def _split_component(y, mu, cov, weight, responsibility, index, 
@@ -930,22 +793,13 @@ class GaussianMixtureEstimator(estimator.Estimator):
 
     parameter_names = ("mean", "cov", "weight")
 
-    def __init__(self, y, k_max=None, k_min=None, regularization=0,
+    def __init__(self, y, regularization=0,
         threshold=1e-5, covariance_type="free", **kwargs):
 
         super(GaussianMixtureEstimator, self).__init__(**kwargs)
 
         y = np.atleast_2d(y)
-        N, D = y.shape
-        k_max, k_min = (k_max or N, k_min or 1)
-
-        if k_max > N:
-            raise ValueError(
-                "I don't believe that you want more components than data")
-
-        if k_min > k_max:
-            raise ValueError("k_min must be less than k_max")
-
+        
         if regularization < 0:
             raise ValueError("regularization strength must be non-negative")
 
@@ -963,8 +817,6 @@ class GaussianMixtureEstimator(estimator.Estimator):
             raise NotImplementedError("don't get your hopes up")
 
         self._y = y
-        self._k_max = k_max
-        self._k_min = k_min
         self._regularization = regularization
         self._threshold = threshold
         self._covariance_type = covariance_type
@@ -988,18 +840,6 @@ class GaussianMixtureEstimator(estimator.Estimator):
     def regularization(self):
         r""" Return the regularization strength. """
         return self._regularization
-
-
-    @property
-    def k_max(self):
-        r""" Return the maximum number of allowed components, :math:`K_{max}`. """
-        return self._k_max
-
-
-    @property
-    def k_min(self):
-        r""" Return the minimum number of allowed components, :math:`K_{min}`. """
-        return self._k_min
 
 
     def optimize(self):
@@ -1078,12 +918,5 @@ class GaussianMixtureEstimator(estimator.Estimator):
                 # None of the perturbations were better than what we had.
                 break
 
-
-        raise NotImplementedError("yo")
-
-        index = np.argmin(np.array(ll_dl)[:, 1])
-        ll, dl = ll_dl[index]
-
-        self.mean, self.cov, self.weight = op_params
-
-        return (op_params, ll)
+        op_params = (mu, cov, weight)
+        return op_params, mindl
