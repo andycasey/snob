@@ -64,17 +64,21 @@ class TestIntegration(unittest.TestCase):
         indices = np.zeros(op_weight.size, dtype=int)
         for index in range(op_weight.size):
             euclidian_distance = np.sum(
-                np.abs(cov - op_cov[index]).reshape(op_weight.size, -1), axis=1)
+                np.abs(cov - op_cov[index]).reshape(op_weight.size, -1), axis=1) \
+                + np.sum(np.abs(mu - op_mu[index]))
             indices[index] = np.argmin(euclidian_distance)
 
-        # Sort optimized values.
-        op_mu = op_mu[indices]
-        op_cov = op_cov[indices]
-        op_weight = op_weight[indices]
+        self.assertEqual(len(set(indices)), len(indices))
 
-        self.assertTrue(np.allclose(mu, op_mu, 0.15))
-        self.assertTrue(np.allclose(cov, op_cov, 0.40))
-        self.assertTrue(np.allclose(weight, op_weight, 0.02))
+        # Sort badly
+        mu = mu[indices]
+        cov = cov[indices]
+        weight = weight[indices]
+
+
+        self.assertTrue(np.max(np.abs(mu - op_mu)) < 0.2)
+        self.assertTrue(np.max(np.abs(cov - op_cov)) < 0.27)
+        self.assertTrue(np.max(np.abs(weight - op_weight)) < 0.01)
 
 
 

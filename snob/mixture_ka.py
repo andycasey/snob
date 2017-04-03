@@ -239,9 +239,12 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
                      * np.exp(-0.5 * np.sum(O.T * np.dot(Cinv, O.T), axis=0))
 
     eps = (7./3 - 4./3 - 1) # machine precision
-    denominator = np.clip(np.sum(numerator, axis=0), eps, np.inf)
+    denominator = np.clip(np.sum(numerator, axis=0), eps, 10e8)
     responsibility = np.clip(numerator/denominator, eps, 1)
-    
+    responsibility /= np.sum(responsibility, axis=0)
+
+    assert np.all(np.isfinite(responsibility))
+
     return (responsibility, numerator, denominator) if full_output \
                                                     else responsibility
 
@@ -388,7 +391,6 @@ def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
     responsibility, _, normalization_constants = responsibility_matrix(
         y, mu, cov, weight, full_output=True)
 
-    assert np.isfinite(normalization_constants).all()
     
     # Eq. 40 omitting -Nd\log\eps
     log_likelihood = np.sum(np.log(normalization_constants)) 
@@ -404,6 +406,7 @@ def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
 
     # Eq. 38
     # I(w) = (M-1)/2 * log(N) - 0.5\sum_{k=1}^{K}\log{w_k} - (K - 1)!
+    assert np.isfinite(log_likelihood)
 
     return (responsibility, log_likelihood, delta_length)
 
@@ -551,7 +554,6 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None,
         logger.warn("Maximum number of E-M iterations reached ({}) {}".format(
             max_em_iterations, kwargs.get("_warn_context", "")))
 
-        raise a
     return (mu, cov, weight, responsibility, meta, dl)
 
 
@@ -603,7 +605,9 @@ def split_component(y, mu, cov, weight, responsibility, index,
     # locate two points which are one standard deviation away on either side.
     U, S, V = np.linalg.svd(cov[index])
     child_mu = mu[index] + np.vstack([+V[0], -V[0]]) * np.diag(cov[index])**0.5
-    
+    assert np.all(np.isfinite(child_mu))
+
+
     # Responsibilities are initialized by allocating the data points to the 
     # closest of the two means.
     child_responsibility = np.vstack([
