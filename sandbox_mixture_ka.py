@@ -34,15 +34,16 @@ y = np.reshape([np.random.multivariate_normal(
     for i in range(len(fractions))], (-1, 3))
 
 
-model = mixture.GaussianMixtureEstimator(y, 25)
-(mu, cov, weight), ll = model.optimize()
+model = mixture.GaussianMixture(y)
+mu, cov, weight = model.fit()
 
 
 
 # Generate data from the example in Section 13.4 of P & A (2015)
+np.random.seed(1)
 N = 1000
-weights = np.array([0.3, 0.3, 0.3, 0.1])
-means = np.array([
+weight = np.array([0.3, 0.3, 0.3, 0.1])
+mu = np.array([
     [-4, -4],
     [-4, -4],
     [2, 2],
@@ -69,9 +70,9 @@ cov = np.array([
 ])
 
 y = np.vstack([np.random.multivariate_normal(
-        means[i], cov[i], size=int(N * weights[i])) \
-    for i in range(len(weights))])
+        mu[i], cov[i], size=int(N * weight[i])) \
+    for i in range(len(weight))])
 
 
-model = mixture.GaussianMixtureEstimator(y)
-(op_mu, op_cov, op_weight), dl = model.optimize()
+model = mixture.GaussianMixture(y)
+op_mu, op_cov, op_weight = model.fit()
