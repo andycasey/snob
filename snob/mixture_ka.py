@@ -48,6 +48,8 @@ class GaussianMixture(object):
     def __init__(self, y, covariance_type="free", **kwargs):
 
         y = np.atleast_2d(y)
+        if 1 > y.size:
+            raise ValueError("no data!")
         
         available = ("free", "diag", "tied", "tied_diag")
         covariance_type = covariance_type.strip().lower()
@@ -78,7 +80,7 @@ class GaussianMixture(object):
 
 
 
-    def _fit_kasarapu_allison(self, threshold=1e-5, max_em_iterations=10000, 
+    def _fit_kasarapu_allison(self, threshold=1e-3, max_em_iterations=10000, 
         **kwargs):
         r"""
         Minimize the message length of a mixture of Gaussians, using the
@@ -106,11 +108,16 @@ class GaussianMixture(object):
         y = self._y # for convenience.
         N, D = y.shape
         
-        kwds = dict(threshold=threshold, max_em_iterations=max_em_iterations,
-            covariance_type=self.covariance_type)
+        callback = kwargs.get("callback", None)
+
+        kwds = dict(
+            threshold=threshold, 
+            max_em_iterations=max_em_iterations,
+            covariance_type=self.covariance_type, 
+            callback=callback)
 
         # Initialize as a one-component mixture.
-        mu, cov, weight = _initialize(y)
+        mu, cov, weight = _initialize(y, callback=callback)
 
         iterations = 1
         N_cp = _parameters_per_component(D, self.covariance_type)
@@ -174,7 +181,7 @@ class GaussianMixture(object):
     fit = _fit_kasarapu_allison
 
 
-def responsibility_matrix(y, mu, cov, weight, full_output=False):
+def _old_responsibility_matrix(y, mu, cov, weight, full_output=False):
     r"""
     Return the responsibility matrix,
 
@@ -238,15 +245,97 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
             = scalar * weight[k] * np.linalg.det(cov_k)**(-0.5) \
                      * np.exp(-0.5 * np.sum(O.T * np.dot(Cinv, O.T), axis=0))
 
+    numerator[~np.isfinite(numerator)] = 0.0
+
     eps = (7./3 - 4./3 - 1) # machine precision
-    denominator = np.clip(np.sum(numerator, axis=0), eps, 10e8)
+    denominator = np.clip(np.sum(numerator, axis=0), eps, np.inf)
     responsibility = np.clip(numerator/denominator, eps, 1)
+
+    assert np.all(np.isfinite(denominator))
+    assert np.all(denominator < 10e8)
+    assert np.all(np.isfinite(responsibility))
+
     responsibility /= np.sum(responsibility, axis=0)
 
-    assert np.all(np.isfinite(responsibility))
+    #foo = _new_responsibility_matrix(y, mu, cov, weight)
 
     return (responsibility, numerator, denominator) if full_output \
                                                     else responsibility
+
+
+def responsibility_matrix(y, mu, cov, weight, full_output=False):
+    r"""
+    Return the responsibility matrix,
+
+    .. math::
+
+        r_{ij} = \frac{w_{j}f\left(x_i;\theta_j\right)}{\sum_{k=1}^{K}{w_k}f\left(x_i;\theta_k\right)}
+
+
+    where :math:`r_{ij}` denotes the conditional probability of a datum
+    :math:`x_i` belonging to the :math:`j`-th component. The effective 
+    membership associated with each component is then given by
+
+    .. math::
+
+        n_j = \sum_{i=1}^{N}r_{ij}
+        \textrm{and}
+        \sum_{j=1}^{M}n_{j} = N
+
+
+    where something.
+    
+    :param y:
+        The data values, :math:`y`.
+
+    :param mu:
+        The mean values of the :math:`K` multivariate normal distributions.
+
+    :param cov:
+        The covariance matrices of the :math:`K` multivariate normal
+        distributions.
+
+    :param weight:
+        The current estimates of the relative mixing weight.
+
+    :param full_output: [optional]
+        If ``True``, return the responsibility matrix, and the log likelihood,
+        which is evaluated for free (default: ``False``).
+
+    :returns:
+        The responsibility matrix. If ``full_output=True``, then the
+        log likelihood (per observation) will also be returned.
+    """
+
+    N, D = y.shape
+    K = mu.shape[0]
+
+
+    constant = -D / 2.0 * np.log(2 * np.pi)
+    log_responsibility = constant * np.ones((K, N))
+
+    for k, (mu_k, cov_k) in enumerate(zip(mu, cov)):
+
+        U, S, V = np.linalg.svd(cov_k)
+        Cinv = np.dot(np.dot(V.T, np.linalg.inv(np.diag(S))), U.T)
+
+        O = y - mu_k
+        log_responsibility[k] += np.log(weight[k]) - 0.5 * (
+            np.log(np.linalg.det(cov_k))
+          + np.sum(O.T * np.dot(Cinv, O.T), axis=0))
+
+    # Any NaNs in log_responsibility occur because of almost infinitely small
+    # probability.
+    assert np.all(np.isfinite(log_responsibility))
+    #log_responsibility[~np.isfinite(log_responsibility)] = -100
+    
+    log_likelihood = scipy.misc.logsumexp(log_responsibility, axis=0)
+
+    responsibility = np.exp(log_responsibility - log_likelihood)
+
+    assert np.all(np.isfinite(responsibility))
+
+    return (responsibility, log_likelihood) if full_output else responsibility
 
 
 def kullback_leibler_for_multivariate_normals(mu_a, cov_a, mu_b, cov_b):
@@ -340,7 +429,7 @@ def _parameters_per_component(D, covariance_type):
         raise ValueError("unknown covariance type '{}'".format(covariance_type))
 
 
-def _initialize(y):
+def _initialize(y, callback=None):
     r"""
     Return initial estimates of the parameters.
 
@@ -356,8 +445,12 @@ def _initialize(y):
     N, D = y.shape
     means = np.mean(y, axis=0).reshape((1, -1))
     cov = np.cov(y.T).reshape((1, D, D))
+
+    state = (means, cov, weight)
+    if callback is not None:
+        callback(state, dict(stage="initialization"))
     
-    return (means, cov, weight)
+    return state
 
 
 def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
@@ -388,17 +481,32 @@ def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
         the log likelihood, and the change in message length.
     """
 
-    responsibility, _, normalization_constants = responsibility_matrix(
+    """
+    from time import time
+    
+    if weight.size > 2:
+        ta = time()
+        foo = responsibility_matrix(y, mu, cov, weight, full_output=True)
+        tb = time()
+        bar = _new_responsibility_matrix(y, mu, cov, weight, full_output=True)
+        tc = time()
+        print(tb - ta)
+        print(tc - tb)
+        raise a
+    """
+
+    responsibility, log_likelihood = responsibility_matrix(
         y, mu, cov, weight, full_output=True)
 
     
     # Eq. 40 omitting -Nd\log\eps
-    log_likelihood = np.sum(np.log(normalization_constants)) 
+    #log_likelihood = np.sum(log_likelihood) 
 
     # TODO: check delta_length.
+    # N_component_pars = int(D + D*(D + 1)/2.0)
     N, D = y.shape
     K = weight.size
-    delta_length = -log_likelihood \
+    delta_length = -np.sum(log_likelihood) \
         + (N_component_pars/2.0 * np.sum(np.log(weight))) \
         + (N_component_pars/2.0 + 0.5) * K * np.log(N)
 
@@ -406,9 +514,92 @@ def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
 
     # Eq. 38
     # I(w) = (M-1)/2 * log(N) - 0.5\sum_{k=1}^{K}\log{w_k} - (K - 1)!
-    assert np.isfinite(log_likelihood)
 
-    return (responsibility, log_likelihood, delta_length)
+    delta_length2 = _message_length(D, cov, weight, responsibility, log_likelihood)
+
+    print("DELTA_LENGTHS", delta_length, delta_length2)
+
+
+    return (responsibility, -np.sum(log_likelihood), delta_length)
+
+def log_kappa(D):
+    r"""
+    Return an approximation of the logarithm of the lattice constant 
+    :math:`\kappa_D` using the relationship:
+
+    .. math::
+
+        I_1(x) \approx - \log\frac{h(\theta')}{\sqrt{F(\theta')}} 
+                       - \log{f(x|\theta')}
+                       - (D/2)\log{2\pi}
+                       + \frac{1}{2}\log{(\pi{}D)}
+                       - 1
+
+    The expected error on :math:`\kappa_D` is less than 0.1 nit.  See Sections
+    5.2.12 and 3.3.4 of Wallace (2005) for more details.
+
+    :param D:
+        The number of dimensions.
+    """
+
+    return  -0.5*D*np.log(2*np.pi) + 0.5*np.log(D*np.pi) - 1
+
+def _message_length(D, cov, weight, responsibility, log_likelihood=None, eps=0.10):
+
+    M, N = responsibility.shape
+    
+    # I(M) = M\log{2} + constant
+    I_m = M # [bits]
+
+    # I(w) = \frac{(M - 1)}{2}\log{N} - \frac{1}{2}\sum_{j=1}^{M}\log{w_j} - (M - 1)!
+    I_w = (M - 1) / 2.0 * np.log(N) \
+        - 0.5 * np.sum(np.log(weight)) \
+        - np.math.factorial(M - 1) \
+        + 1
+    I_w = I_w/np.log(2) # [bits]
+
+
+    # \sum_{j=1}^{M}I(\theta_j) = -\sum_{j=1}^{M}\log{h\left(\theta_j\right)}
+    #                           + 0.5\sum_{j=1}^{M}\log\det{F\left(\theta_j\right)}
+
+    # \det{F\left(\mu,C\right)} \approx \det{F(\mu)}\dot\det{F(C)}
+    # |F(\mu)| = N^{d}|C|^{-1}
+    # |F(C)| = N^\frac{d(d + 1)}{2}2^{-d}|C|^{-(d+1)}
+
+    # thus |F(\mu,C)| = N^\frac{d(d+3)}{2}\dot{}2^{-d}\dot{}|C|^{-(d+2)}
+
+    #F_m = N**(0.5 * D * (D + 3)) \
+    #    * 2**(-D) \
+    #    * np.linalg.det(cov)**(-(D + 2))
+
+    log_F_m = 0.5 * D * (D + 3) * np.log(N) \
+            - 2 * np.log(D) \
+            - (D + 2) * np.nansum(np.log(np.linalg.det(cov)))
+
+    # TODO: No prior on h(theta).. thus -\sum_{j=1}^{M}\log{h\left(\theta_j\right)} = 0
+
+    # TODO: bother about including this? -N * D * np.log(eps)
+    assert log_likelihood is not None
+
+    #log_likelihood = -np.sum(np.log(normalization_constants))
+
+    # WRONG:
+    p = K * D * (D + 3)/2.0
+    lattice = (p/2.0) * (1 + log_kappa(p))
+    #lattice = 0
+
+
+
+    N_cp = _parameters_per_component(D, "free")
+    part2 = -np.sum(log_likelihood) + N_cp/(2*np.log(2))
+
+
+    I = I_m + I_w + (0 + 0.5 * log_F_m) - np.sum(log_likelihood) + lattice
+    #assert I > 0
+    assert np.isfinite(I)
+    if weight.size > 1:
+        raise a
+    return I
 
 
 def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
@@ -452,7 +643,7 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
     new_weight = (effective_membership + 0.5)/(N + M/2.0)
 
     w_responsibility = parent_responsibility * responsibility
-    w_effective_membership = np.sum(w_responsibility, axis=1)
+    w_effective_membership = np.sum(w_responsibility, axis=1) + 1e-16
 
     new_mu = np.zeros_like(mu)
     new_cov = np.zeros_like(cov)
@@ -462,9 +653,26 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
 
         offset = y - new_mu[m]
         new_cov[m] = np.dot(w_responsibility[m] * offset.T, offset) \
-                   / (w_effective_membership[m] - 1)
+                   / (w_effective_membership[m] - 1) \
+                   + 1e-16 * np.eye(D)
 
-    return (new_mu, new_cov, new_weight)
+    state = (new_mu, new_cov, new_weight)
+
+    assert np.all(np.isfinite(new_mu))
+    assert np.all(np.isfinite(new_cov))
+    assert np.all(np.isfinite(new_weight))
+
+
+    callback = kwargs.get("callback", None)
+    if callback is not None:
+        try:
+            callback(state, "maximization")
+        
+        except:
+            logger.exception("Exception when running callback:")
+            raise
+
+    return state 
 
 
 def _expectation_maximization(y, mu, cov, weight, responsibility=None,
@@ -539,13 +747,13 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None,
 
         # Check for convergence.
         prev_ll, prev_dl = ll_dl[-1]
-        relative_delta_ll = np.abs((ll - prev_ll)/prev_ll)
+        relative_delta_message_length = np.abs((ll - prev_ll)/prev_ll)
         ll_dl.append([ll, dl])
         iterations += 1
 
-        assert np.isfinite(relative_delta_ll)
+        assert np.isfinite(relative_delta_message_length)
 
-        if relative_delta_ll <= threshold \
+        if relative_delta_message_length <= threshold \
         or iterations >= max_em_iterations:
             break
 
@@ -604,7 +812,14 @@ def split_component(y, mu, cov, weight, responsibility, index,
     # Compute the direction of maximum variance of the parent component, and
     # locate two points which are one standard deviation away on either side.
     U, S, V = np.linalg.svd(cov[index])
-    child_mu = mu[index] + np.vstack([+V[0], -V[0]]) * np.diag(cov[index])**0.5
+    sigma = np.diag(cov[index])**0.5
+    #if not np.all(np.isfinite(sigma)):
+    #    # TODO: FAIL
+    #    sigma = 1.0
+    assert np.all(np.isfinite(sigma))
+
+    child_mu = mu[index] + np.vstack([+V[0], -V[0]]) * sigma
+    #np.diag(cov[index])**0.5
     assert np.all(np.isfinite(child_mu))
 
 
@@ -629,13 +844,13 @@ def split_component(y, mu, cov, weight, responsibility, index,
 
     # We will need these later.responsibility
     parent_weight = weight[index]
-    eps = (7./3 - 4./3 - 1) # machine precision
-    parent_responsibility = np.clip(responsibility[index], eps, 1)
+    #eps = (7./3 - 4./3 - 1) # machine precision
+    parent_responsibility = responsibility[index]
 
     # Run expectation-maximization on the child mixtures.
     child_mu, child_cov, child_weight, child_responsibility, meta, dl = \
         _expectation_maximization(y, child_mu, child_cov, child_weight, 
-            responsibility=child_responsibility, 
+            #responsibility=child_responsibility, 
             parent_responsibility=parent_responsibility,
             covariance_type=covariance_type, **kwargs)
 
@@ -650,6 +865,8 @@ def split_component(y, mu, cov, weight, responsibility, index,
     # Update the component weights.
     # Note that the child A mixture will remain in index `index`, and the
     # child B mixture will be appended to the end.
+
+    raise a
 
     if M > 1:
         # Integrate the M + 1 components and run expectation-maximization
@@ -720,10 +937,18 @@ def delete_component(y, mu, cov, weight, responsibility, index,
     parent_responsibility = responsibility[index]
     
     # Eq. 54-55
-    new_weight = np.delete(weight, index) / (1 - parent_weight)
-    new_responsibility = np.delete(responsibility, index, axis=0) \
-                   / (1 - parent_responsibility)
-    new_responsibility = np.clip(new_responsibility, 0, 1)
+    new_weight = np.clip(
+        np.delete(weight, index, axis=0)/(1-parent_weight),
+        0, 1)
+    
+    # Calculate the new responsibility safely.
+    new_responsibility = np.clip(
+        np.delete(responsibility, index, axis=0) / (1 - parent_responsibility),
+        0, 1)
+    new_responsibility[~np.isfinite(new_responsibility)] = 0.0
+
+    assert np.all(np.isfinite(new_responsibility))
+    assert np.all(np.isfinite(new_weight))
 
     new_mu = np.delete(mu, index, axis=0)
     new_cov = np.delete(cov, index, axis=0)
