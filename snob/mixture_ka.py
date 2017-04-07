@@ -520,9 +520,9 @@ def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
     print("DELTA_LENGTHS", delta_length, delta_length2)
 
 
-    return (responsibility, -np.sum(log_likelihood), delta_length)
+    return (responsibility, -np.sum(log_likelihood), delta_length2)
 
-def log_kappa(D):
+def old_log_kappa(D):
     r"""
     Return an approximation of the logarithm of the lattice constant 
     :math:`\kappa_D` using the relationship:
@@ -543,6 +543,12 @@ def log_kappa(D):
     """
 
     return  -0.5*D*np.log(2*np.pi) + 0.5*np.log(D*np.pi) - 1
+
+
+def log_kappa(D):
+
+    cd = -0.5 * D * np.log(2 * np.pi) + 0.5 * np.log(D * np.pi)
+    return -1 + 2 * cd/D
 
 def _message_length(D, cov, weight, responsibility, log_likelihood=None, eps=0.10):
 
@@ -568,31 +574,77 @@ def _message_length(D, cov, weight, responsibility, log_likelihood=None, eps=0.1
 
     # thus |F(\mu,C)| = N^\frac{d(d+3)}{2}\dot{}2^{-d}\dot{}|C|^{-(d+2)}
 
-    #F_m = N**(0.5 * D * (D + 3)) \
-    #    * 2**(-D) \
-    #    * np.linalg.det(cov)**(-(D + 2))
-
+    # old:
+    """
     log_F_m = 0.5 * D * (D + 3) * np.log(N) \
             - 2 * np.log(D) \
             - (D + 2) * np.nansum(np.log(np.linalg.det(cov)))
+    """
 
+
+    # For multivariate, from Kasaraup:
+    """
+    log_F_m = 0.5 * D * (D + 3) * np.log(N) # should be Neff? TODO
+    log_F_m += -np.sum(log_det_cov)
+    log_F_m += -(D * np.log(2) + (D + 1) * np.sum(log_det_cov))    
+    """
+    if D == 1:
+        log_F_m = np.log(2) + (2 * np.log(N)) - 4 * np.log(cov.flatten()[0]**0.5)
+    else:
+        log_det_cov = np.log(np.linalg.det(cov))
+    
+        log_F_m = 0.5 * D * (D + 3) * np.log(N) 
+        log_F_m += -np.sum(log_det_cov)
+        log_F_m += -(D * np.log(2) + (D + 1) * np.sum(log_det_cov))    
+        
+        
     # TODO: No prior on h(theta).. thus -\sum_{j=1}^{M}\log{h\left(\theta_j\right)} = 0
 
     # TODO: bother about including this? -N * D * np.log(eps)
     assert log_likelihood is not None
 
-    #log_likelihood = -np.sum(np.log(normalization_constants))
 
-    # WRONG:
-    p = K * D * (D + 3)/2.0
-    lattice = (p/2.0) * (1 + log_kappa(p))
-    #lattice = 0
 
 
 
     N_cp = _parameters_per_component(D, "free")
     part2 = -np.sum(log_likelihood) + N_cp/(2*np.log(2))
 
+    AOM = 0.001 # MAGIC
+    Il = -np.sum(log_likelihood) - (D * N * np.log(AOM))
+    Il = Il/np.log(2) # [bits]
+
+    if D == 1:
+
+        # R1
+        R1 = 10 # MAGIC
+        R2 = 2 # MAGIC
+        log_prior = D * np.log(R1) # mu
+        log_prior += np.log(R2)
+        log_prior += np.log(cov.flatten()[0]**0.5)
+
+    
+    else:
+        R1 = 10
+        log_prior = D * np.log(R1) + 0.5 * (D + 1) * np.sum(np.log(np.linalg.det(cov)))
+
+
+    I_t = (log_prior + 0.5 * log_F_m)/np.log(2)
+
+
+    num_free_params = (0.5 * D * (D+3) * M) + (M - 1)
+    lattice = 0.5 * num_free_params * log_kappa(num_free_params) / np.log(2)
+
+
+    part1 = I_m + I_w + I_t + lattice
+    part2 = Il + (0.5 * num_free_params)/np.log(2)
+
+    I = part1 + part2
+
+    
+    return I
+    if I > 125:
+        raise a
 
     I = I_m + I_w + (0 + 0.5 * log_F_m) - np.sum(log_likelihood) + lattice
     #assert I > 0
@@ -822,7 +874,7 @@ def split_component(y, mu, cov, weight, responsibility, index,
     #np.diag(cov[index])**0.5
     assert np.all(np.isfinite(child_mu))
 
-
+    raise a
     # Responsibilities are initialized by allocating the data points to the 
     # closest of the two means.
     child_responsibility = np.vstack([
@@ -854,6 +906,7 @@ def split_component(y, mu, cov, weight, responsibility, index,
             parent_responsibility=parent_responsibility,
             covariance_type=covariance_type, **kwargs)
 
+    
     # After the chld mixture is locally optimized, we need to integrate it
     # with the untouched M - 1 components to result in a M + 1 component
     # mixture M'.
