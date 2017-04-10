@@ -80,7 +80,7 @@ class GaussianMixture(object):
 
 
 
-    def _fit_kasarapu_allison(self, threshold=1e-3, max_em_iterations=10000, 
+    def _fit_kasarapu_allison(self, threshold=1e-5, max_em_iterations=10000, 
         covariance_regularization=0, **kwargs):
         r"""
         Minimize the message length of a mixture of Gaussians, using the
@@ -131,7 +131,7 @@ class GaussianMixture(object):
 
             M = weight.size
             best_perturbations = defaultdict(lambda: [np.inf])
-
+                
             # Exhaustively split all components.
             for m in range(M):
                 r = (_mu, _cov, _weight, _R, _meta, p_dl) \
@@ -167,12 +167,16 @@ class GaussianMixture(object):
 
             logger.debug("Best operation: {} {}".format(operation, b_dl))
 
-
             if mindl > b_dl:
                 # Set the new state as the best perturbation.
                 iterations += 1
                 mindl = b_dl
                 mu, cov, weight, R = (b_mu, b_cov, b_weight, b_R)
+
+                #if weight.size == 8:
+                #    _message_length(y, mu, cov, weight, dofail=True)
+                #    raise a
+
 
             else:
                 # None of the perturbations were better than what we had.
@@ -229,6 +233,7 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
         log likelihood (per observation) will also be returned.
     """
 
+    """
     N, D = y.shape
     K = mu.shape[0]
 
@@ -253,12 +258,19 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
 
     assert np.all(np.isfinite(responsibility))
     assert np.all(np.isfinite(log_likelihood))
+    """
 
-    if np.sum(np.sum(responsibility, axis=1) == 0) > 1:
-        #logger.warn("Using old responsibility matrix")
-        #foo_r, foo_ll = _old_responsibility_matrix(y, mu, cov, weight, full_output)
+    precision_cholesky = _compute_cholesky_decomposition(cov, "full")
+    weighted_log_prob = _estimate_log_gaussian_prob(y, mu, precision_cholesky, "full") \
+                      + np.log(weight)
+    log_prob_norm = scipy.misc.logsumexp(weighted_log_prob, axis=1)
+    with np.errstate(under="ignore"):
+        log_resp = weighted_log_prob - log_prob_norm[:, np.newaxis]
 
-        raise a
+    #if K > 5:
+    #    raise a
+    responsibility = np.exp(log_resp).T
+    log_likelihood = log_prob_norm
 
     return (responsibility, log_likelihood) if full_output else responsibility
 
@@ -490,6 +502,8 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
     """
     if D == 1:
         log_F_m = np.log(2) + (2 * np.log(N)) - 4 * np.log(cov.flatten()[0]**0.5)
+        raise UnsureError
+
     else:
         log_det_cov = np.log(np.linalg.det(cov))
     
@@ -506,11 +520,11 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
     N_cp = _parameters_per_component(D, "free")
     part2 = -np.sum(log_likelihood) + N_cp/(2*np.log(2))
 
-    # TODO: In K code they have N * np.log(AOM)....
     AOM = 0.001 # MAGIC
     Il = -np.sum(log_likelihood) - (D * N * np.log(AOM))
     Il = Il/np.log(2) # [bits]
 
+    """
     if D == 1:
 
         # R1
@@ -524,6 +538,10 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
     else:
         R1 = 10
         log_prior = D * np.log(R1) + 0.5 * (D + 1) * log_det_cov
+    """
+    
+    log_prior = 0
+
 
     I_t = (log_prior + 0.5 * log_F_m)/np.log(2)
     sum_It = np.sum(I_t)
@@ -538,13 +556,108 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
 
     I = part1 + part2
 
-    assert I_w >= 0
+    assert I_w >= -0.5 # prevent triggers on underflow
 
     assert I > 0
+
     if dofail:
+    
+        print(I_m, I_w, np.sum(I_t), lattice, Il)
+        print(I_t)
+        print(part1, part2)
+
         raise a
 
     return I
+
+
+def _compute_cholesky_decomposition(covariances, covariance_type):
+    r"""
+    Compute the Cholesky decomposition of the given covariance matrices.
+
+    :param covariances:
+        An array of covariance matrices.
+
+    :param covariance_type:
+        The structure of the covariance matrix for individual components.
+        The available options are: `full` for a full covariance matrix,
+        `diag` for a diagonal covariance matrix, `tied` for a common covariance
+        matrix for all components, `tied_diag` for a common diagonal
+        covariance matrix for all components.
+    """
+
+    singular_matrix_error = "Failed to do Cholesky decomposition"
+
+    if covariance_type in "full":
+        M, D, _ = covariances.shape
+
+        cholesky_decomposition = np.empty((M, D, D))
+        for m, covariance in enumerate(covariances):
+            try:
+                cholesky_cov = scipy.linalg.cholesky(covariance, lower=True) 
+            except scipy.linalg.LinAlgError:
+                raise ValueError(singular_matrix_error)
+
+            cholesky_decomposition[m] = scipy.linalg.solve_triangular(
+                cholesky_cov, np.eye(D), lower=True).T
+
+    else:
+        raise NotImplementedError("nope")
+
+    return cholesky_decomposition
+
+
+
+def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
+    """Compute the log-det of the cholesky decomposition of matrices.
+    Parameters
+    ----------
+    matrix_chol : array-like,
+        Cholesky decompositions of the matrices.
+        'full' : shape of (n_components, n_features, n_features)
+        'tied' : shape of (n_features, n_features)
+        'diag' : shape of (n_components, n_features)
+        'spherical' : shape of (n_components,)
+    covariance_type : {'full', 'tied', 'diag', 'spherical'}
+    n_features : int
+        Number of features.
+    Returns
+    -------
+    log_det_precision_chol : array-like, shape (n_components,)
+        The determinant of the precision matrix for each component.
+    """
+    if covariance_type == 'full':
+        n_components, _, _ = matrix_chol.shape
+        log_det_chol = (np.sum(np.log(
+            matrix_chol.reshape(
+                n_components, -1)[:, ::n_features + 1]), 1))
+
+    elif covariance_type == 'tied':
+        log_det_chol = (np.sum(np.log(np.diag(matrix_chol))))
+
+    elif covariance_type == 'diag':
+        log_det_chol = (np.sum(np.log(matrix_chol), axis=1))
+
+    else:
+        log_det_chol = n_features * (np.log(matrix_chol))
+
+    return log_det_chol
+
+
+def _estimate_log_gaussian_prob(X, means, precision_cholesky, covariance_type):
+    n_samples, n_features = X.shape
+    n_components, _ = means.shape
+    # det(precision_chol) is half of det(precision)
+    log_det = _compute_log_det_cholesky(
+        precision_cholesky, covariance_type, n_features)
+
+    if covariance_type == 'full':
+        log_prob = np.empty((n_samples, n_components))
+        for k, (mu, prec_chol) in enumerate(zip(means, precision_cholesky)):
+            y = np.dot(X, prec_chol) - np.dot(mu, prec_chol)
+            log_prob[:, k] = np.sum(np.square(y), axis=1)
+
+    return -0.5 * (n_features * np.log(2 * np.pi) + log_prob) + log_det
 
 
 def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
@@ -801,12 +914,14 @@ def split_component(y, mu, cov, weight, responsibility, index,
     parent_weight = weight[index]
     parent_responsibility = responsibility[index]
 
+    """
     # Run expectation-maximization on the child mixtures.
     child_mu, child_cov, child_weight, child_responsibility, meta, dl = \
         _expectation_maximization(y, child_mu, child_cov, child_weight, 
             responsibility=child_responsibility, 
             parent_responsibility=parent_responsibility,
             covariance_type=covariance_type, **kwargs)
+    """
 
     # After the chld mixture is locally optimized, we need to integrate it
     # with the untouched M - 1 components to result in a M + 1 component
@@ -840,9 +955,16 @@ def split_component(y, mu, cov, weight, responsibility, index,
             y, mu, cov, weight, responsibility, 
             covariance_type=covariance_type, **kwargs)
 
+
     else:
         # Simple case where we don't have to re-run E-M because there was only
         # one component to split.
+        child_mu, child_cov, child_weight, child_responsibility, meta, dl = \
+            _expectation_maximization(y, child_mu, child_cov, child_weight, 
+            responsibility=child_responsibility, 
+            parent_responsibility=parent_responsibility,
+            covariance_type=covariance_type, **kwargs)
+
         mu, cov, weight, responsibility \
             = (child_mu, child_cov, child_weight, child_responsibility)
 
