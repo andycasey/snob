@@ -219,6 +219,11 @@ class GaussianMixture(object):
             If there is a shape mis-match between the input arrays.
         """
 
+        if None in (means, covariances, weights):
+            for parameter_name in self.parameter_names:
+                setattr(self, "_{}".format(parameter_name), None)
+                return False
+
         means = np.atleast_2d(means)
         covariances = np.atleast_3d(covariances)
         weights = np.array(weights)
@@ -238,12 +243,10 @@ class GaussianMixture(object):
         self._covariances = covariances
         self._weights = weights
 
-        if None not in (means, covariances, weights):         
-            self._precision_cholesky = _compute_cholesky_decomposition(
-                self.covariances, self.covariance_type)
-            return True
+        self._precision_cholesky = _compute_cholesky_decomposition(
+            self.covariances, self.covariance_type)
+        return True
 
-        return False
 
 
     def fit(self, y, **kwargs):
@@ -315,6 +318,7 @@ class GaussianMixture(object):
             # Ignore underflow errors.
             log_resp = weighted_log_prob - log_prob_norm[:, np.newaxis]
 
+        raise a
         return (log_prob_norm, log_resp)
 
 
@@ -519,7 +523,7 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, D):
         n_components, _, _ = matrix_chol.shape
         log_det_chol = (np.sum(np.log(
             matrix_chol.reshape(
-                n_components, -1)[:, ::n_features + 1]), 1))
+                n_components, -1)[:, ::D + 1]), 1))
 
     elif covariance_type == 'tied':
         log_det_chol = (np.sum(np.log(np.diag(matrix_chol))))
@@ -574,8 +578,8 @@ def _estimate_log_gaussian_prob(y, means, precision_cholesky, covariance_type):
             diff = np.dot(y, prec_chol) - np.dot(mu, prec_chol)
             log_prob[:, k] = np.sum(np.square(diff), axis=1)
 
-    return -0.5 * (D * np.log(2 * np.pi) + log_prob) + log_det
-
+    return  -0.5 * (D * np.log(2 * np.pi) + log_prob) + log_det
+    
 
 def _compute_cholesky_decomposition(covariances, covariance_type):
     r"""
