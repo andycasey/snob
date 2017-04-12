@@ -51,8 +51,8 @@ class SLFGaussianMixture(object):
         options are: ``kmeans``, and ``random`` (default: ``kmeans``).
     """
 
-    parameter_names \
-        = ("means", "factor_scores", "factor_loads", "specific_variances")
+    parameter_names = (
+        "means", "factor_loads", "factor_scores", "specific_variances")
 
     def __init__(self, num_components, tolerance=1e-5, covariance_type="full", 
         covariance_regularization=0, max_iter=10000, 
@@ -215,7 +215,7 @@ class SLFGaussianMixture(object):
         return False
 
 
-    def fit(self, x, foo1, foo2, foo3, **kwargs):
+    def fit(self, x, **kwargs):
         r"""
         Fit the mixture model to the data using the expectation-maximization
         algorithm, and minimum message length to update the parameter
@@ -227,11 +227,9 @@ class SLFGaussianMixture(object):
             the number of dimensions per observation.
         """
 
+        # Solve for latent factors first.
         N, K = x.shape
 
-        # Solve for latent factors first.
-
-        # Calculate means.
         means = np.mean(x, axis=0)
 
         w = x - means
@@ -239,198 +237,64 @@ class SLFGaussianMixture(object):
 
         U, S, V = np.linalg.svd(correlation_matrix)
 
-        """
-        # Take b as the dominant eigenvector of the correlation matrix,
-        # and set b^2 as the dominant eigenvalue.
-        b = V[0] * np.sqrt(S[0])
-
-        def message_length(b):
-
-            b_squared = np.sum(b**2)
-
-            specific_variances = np.sum(w**2, axis=0) \
-                               / ((N - 1) * (1 + b))
-
-            v_scale = (1 - K/((N - 1) * b_squared)) / (1 + b_squared)
-
-            
-
-            specific_sigma = np.sqrt(specific_variances)
-            Y = np.dot(w.T, w)\
-              / np.dot(specific_sigma.T, specific_sigma)
-
-
-            Ybb = np.sum(np.dot(Y, np.dot(b.T, b)))
-            wbv = Ybb * v_scale
-            v2 = wbv * v_scale
-            residual2 = (b_squared + 1.0) * (N - 1) - 2 * wbv + b_squared * v2
-
-            foo= (N - 1) * np.sum(np.log(specific_sigma)) \
-                +  0.5 * K * np.log(N * v2) \
-                + 0.5 * (N - 1 + K) * np.log(1 + b_squared) \
-                + 0.5 * v2 \
-                + 0.5 * residual2
-            print(b, foo)
-            return foo
-
-
-        import scipy.optimize as op
-
-        b = op.fmin_l_bfgs_b(message_length, b, approx_grad=True)[0]
-
-        #b = fmin(message_length, b, maxfun=10000000, maxiter=10000000)
-        #import pickle
-        #with open("b.pkl", "rb") as fp:
-        #    b = pickle.load(fp)
-
-        sigma = np.sqrt(np.diag(np.dot(w.T, w)) \
-              / ((b * b + 1.0) * (N - 1)))
-
-        factor_loads = sigma * b
-        y = (x - means)/sigma
-
-        b_squared = np.sum(b**2)
-        factor_scores = y * b * (1 - K/(N - 1) * b_squared)/(1 + b_squared)
-
-        specific_variances = sigma**2
-
-        other_b = b.copy()
-        """
+        # Set the initial values for b as the principal eigenvector, scaled by
+        # the square-root of the principal eigenvalue
         b = V[0] * S[0]**0.5
 
         for iteration in range(self.max_iter):
 
+            # The iteration scheme is from Wallace & Freeman (1992)
             if (N - 1) * np.sum(b**2) <= K:
                 b = np.zeros(K)
 
-            specific_variance = np.sum(w**2, axis=0) \
+            specific_variances = np.sum(w**2, axis=0) \
                                / ((N - 1) * (1 + b**2))
-            specific_sigma = np.sqrt(np.atleast_2d(specific_variance))
+            specific_sigmas = np.sqrt(np.atleast_2d(specific_variances))
 
-            b_squared = np.sum(b**2)
-            if b_squared == 0:
+            b_sq = np.sum(b**2)
+            if b_sq == 0:
+                raise NotImplementedError("a latent factor is not justified")
                 break
 
-            Y = np.dot(w.T, w) \
-              / np.dot(specific_sigma.T, specific_sigma)
+            # Note: Step (c) of Wallace & Freeman (1992) suggest to compute
+            #       Y as Y_{kj} = \frac{V_{kj}}{\sigma_{k}\sigma_{j}}, where
+            #       V_{kj} is the kj entry of the correlation matrix, but that
+            #       didn't seem to work,...
+            Y = np.dot(w.T, w) / np.dot(specific_sigmas.T, specific_sigmas)
 
-            new_b = (np.dot(Y, b) * (1 - K/(N - 1) * b_squared)) \
-                  / ((N - 1) * (1 + b_squared))
+            new_b = (np.dot(Y, b) * (1 - K/(N - 1) * b_sq)) \
+                  / ((N - 1) * (1 + b_sq))
 
             change = np.sum(np.abs(b - new_b))
-            b = new_b
+            assert np.isfinite(change)
+            b = new_b        
 
-            print(iteration, change)
+            logger.debug(
+                "Iteration #{} on SLF, delta: {}".format(iteration, change))
 
             if self.tolerance >= change:
                 break
 
-        
-        specific_sigma = np.sqrt(np.diag(np.dot(w.T, w)) \
+        specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) \
                     / ((b*b + 1.0) * (N - 1)))
-        factor_loads = specific_sigma * b
-        y = (x - means)/specific_sigma
+        factor_loads = specific_sigmas * b
+        y = (x - means)/specific_sigmas
 
-        b_squared = np.sum(b**2)
-        factor_scores = np.dot(y, b) * (1 - K/(N - 1) * b_squared)/(1 + b_squared)
-
-        specific_variance = specific_sigma**2
-
-
-        def message_length(b):
-
-            b_squared = np.sum(b**2)
-
-            sv2 = np.sum(w**2, axis=0) \
-                               / ((N - 1) * (1 + b))
-
-            v_scale = (1 - K/((N - 1) * b_squared)) / (1 + b_squared)
-
-            
-
-            ss = np.sqrt(sv2)
-            Y = np.dot(w.T, w)\
-              / np.dot(ss.T, ss)
-
-
-            Ybb = np.sum(np.dot(Y, np.dot(b.T, b)))
-            wbv = Ybb * v_scale
-            v2 = wbv * v_scale
-            residual2 = (b_squared + 1.0) * (N - 1) - 2 * wbv + b_squared * v2
-
-            foo= (N - 1) * np.sum(np.log(ss)) \
-                +  0.5 * K * np.log(N * v2) \
-                + 0.5 * (N - 1 + K) * np.log(1 + b_squared) \
-                + 0.5 * v2 \
-                + 0.5 * residual2
-            print(b, foo)
-            return foo
-
-
-        import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(3)
-
-        axes[0].scatter(foo1[0], factor_loads, alpha=0.5)
-        axes[0].set_xlabel("True factor load")
-        axes[0].set_ylabel("Inferred factor load")
-
-        limits = np.array([axes[0].get_xlim(), axes[0].get_ylim()])
-        limits = (np.min(limits), np.max(limits))
-        axes[0].set_xlim(limits)
-        axes[0].set_ylim(limits)
-
-        axes[1].scatter(foo2.T[0], factor_scores, alpha=0.5)
-        axes[1].set_xlabel("True factor score")
-        axes[1].set_ylabel("Inferred factor scores")
-
-        limits = np.array([axes[1].get_xlim(), axes[1].get_ylim()])
-        limits = (np.min(limits), np.max(limits))
-        axes[1].set_xlim(limits)
-        axes[1].set_ylim(limits)
-
-        fig.tight_layout()
-        fig.savefig("slf_experiment_v0.png", dpi=300)
-
-        raise a
-
-
-
-        # Only initialize if we don't have parameters already.
-        self._soft_initialize(y, **kwargs)
-        self.converged = False
-        prev_log_prob_norm = -np.inf
-
-        for iteration in range(self.max_iter):
-
-            # Expectation.
-            log_prob_norm, log_responsibility = self._expectation(y)
-
-            # Maximization.
-            self._maximization(y, np.exp(log_responsibility))
-
-            # Check for convergence.
-            mean_log_prob_norm = np.mean(log_prob_norm)
-
-            change = prev_log_prob_norm - mean_log_prob_norm
-            prev_log_prob_norm = mean_log_prob_norm
-
-            print(iteration, prev_log_prob_norm, mean_log_prob_norm, change)
-            print(self.means)
-
-            if self.tolerance > abs(change):
-                self.converged = True
-                break
-
-
-
-        else:
-            logger.warn(
-                "Hit maximum number of expectation-maximization iterations "
-                "({})".format(self.max_iter))
+        b_sq = np.sum(b**2)
+        factor_scores = np.dot(y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
+        specific_variances = specific_sigmas**2
         
-        self.meta.update(
-            delta_log_prob_norm=change, iterations=iteration,
-            log_prob_norm=log_prob_norm)
+        means = means.reshape((1, -1))
+        factor_loads = factor_loads.reshape((1, -1))
+        factor_scores = factor_scores.reshape((-1, 1))
+        specific_variances = specific_variances.reshape((1, -1))
+
+        # Set the parameters.
+        self.set_parameters(means, factor_loads, factor_scores, 
+            specific_variances)
+        self.meta.update(iterations=iteration, delta_sum_abs_b=change)
+
+        #L1 = np.sum((x - means - np.dot(factor_scores, np.atleast_2d(factor_loads).T))**2/specific_variances)
 
         return self
 
