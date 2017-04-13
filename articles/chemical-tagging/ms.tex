@@ -15,6 +15,9 @@
 \newcommand{\acronym}[1]{{\small{#1}}}
 \newcommand{\project}[1]{\textsl{#1}}
 
+% Have some maaaath.
+\def\infinity{\rotatebox{90}{8}}
+
 % Affiliation(s)
 \newcommand{\moca}{
 	\affil{School of Physics and Astronomy, Monash University, 
@@ -110,7 +113,45 @@ tagging has yet to be realised.
 \ref{section:the-problem}
 
 
-% First formulate the problem: what is needed to make things work?
+What is needed to make things work? We outline the 12 disciples:
+
+\begin{enumerate}
+\item The number of clusters.
+\item The number of latent factors (e.g., supernovae yields, AGB yields).
+\item The multivariate factor loads of individual latent factors.
+\item The relative weighting (yet another latent factor, which is however not
+      common between all mixtures) of individual mixtures.
+\item The relative \emph{scoring} of different latent factors on each star.
+\item The intrinsic \emph{specific variances} of the individual abundances.
+\item The multivariate mean abundances and covariance matrices of each star
+      cluster, where the covariance matrix includes off-diagonal terms that
+      describe the \emph{data} correlations (e.g., the correlations that result
+      from trying to measure multiple abundances from the same data).
+\item Atomic diffusion, veiling, and thermohaline mixing: The surface chemical
+      abundances of stars \emph{will change} over its lifetime.
+\item Probabilistic priors (perhaps very hard priors) on joint responsibilities
+      of stars that are specified from astrometric constraints.
+\item There are missing data. Accept it.
+\item There are \emph{upper limits} on some data.\footnote{
+        Spectroscopists are probably the worst in the Universe when it comes to
+        reporting upper limits. They will report an `\emph{upper limit}', when
+        what might mean is the \emph{absolute limit} where there is zero
+        likelihood that the true value is above the given point estimate (which might as well be $+\infinity$, or
+        they may describe a \emph{pseudo-1$\sigma$} limit which is estimated
+        from the locally (yet covariant!) heteroskedastic noise in the data (which often might as well be $\approx$0).
+        In reality, an upper limit ought to be given as a probability density
+        function that is skewed in one direction, perhaps similar to the shape
+        of a log-normal distribution. In any case, the confidence to which they
+        describe their `\emph{upper limit}' ought to be given.}
+\item There are correlations in the measurements that result from trying to
+      measure two (or more) abundances from the same data. As an example,
+      consider a rare -- yet important -- chemical abundance that has a single
+      atomic absorption line which is blended with a more common elemental
+      abundance. In all likelihood, there will be a strong positive correlation
+      between the abundance derived between the rare and more common elemental
+      abundance.
+\end{enumerate}
+
 
 % What work has been done on chemical tagging?
 
@@ -209,7 +250,7 @@ for the covariance matrices in the individual mixtures. Ignoring the effect of
 our prior on $\bm{\mu}$ gives us a proportional joint prior,
 
 \begin{equation}
-    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} \right.
+    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} 
 \end{equation}
 % TODO: DERIVE THIS.
 
