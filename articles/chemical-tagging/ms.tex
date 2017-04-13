@@ -3,6 +3,8 @@
 
 \documentclass{aastex61}
 
+\usepackage{bm}
+
 % For revision history
 \IfFileExists{vc.tex}{\input{vc.tex}}{
     \newcommand{\githash}{UNKNOWN}
@@ -85,8 +87,131 @@ that MML outperforms all other considered penalty techniques.
 \section{Introduction} 
 \label{sec:introduction}
 
-\citet{Freeman_2002} introduced chemical tagging as an idea to identify groups of stars that formed together in the same gas cloud, which have now become physically separated in phase space.  This idea is attractive because the observable chemical abundances of stars remains largely unchanged throughout a star's lifetime, whereas phase space information is quickly damped through dynamical interactions. Some progress has been made towards chemical tagging in simplistic experiments, but the full extent of chemical tagging has yet to be realised. Indeed, in this \article\ we argue that the full extent \emph{of the problem} of chemical tagging has not even been realised yet.
+\citet{Freeman_2002} introduced chemical tagging as an idea to identify groups 
+of stars that formed together in the same gas cloud, which are no longer
+identifiable in phase space, either by their physical location or orbital
+dynamics.  This idea is attractive because the observable chemical abundances of 
+stars remains largely unchanged throughout a star's lifetime, whereas phase 
+space information is quickly damped through dynamical interactions. Moreover, 
+while most stars are thought to form in star clusters \citep{someone}, only the
+most massive or isolated star clusters are able to survive the star formation
+process \citep{someone2}. For this reason we rely on `field' stars -- that is,
+stars that are not clearly associated with a known star cluster -- in order to
+infer the formation of the Milky Way.
 
+
+Some progress has been made towards chemical tagging in simplistic experiments, 
+but the full extent of chemical tagging has yet to be realised. Indeed, in this 
+\article\ we assert that even \emph{the full extent of the problem} of chemical 
+tagging has yet to be realised. 
+% Some other comments about this?
+
+\subsection*{A Probabilistic Approach to Chemical Tagging}
+\ref{section:the-problem}
+
+
+% First formulate the problem: what is needed to make things work?
+
+% What work has been done on chemical tagging?
+
+% Unfortunately these approaches have only sought to solve individual problems
+% within chemical tagging. Doing so -- and then later using those results to
+% infer something else about the galaxy -- makes both results inconsistent,
+% both statistically, and otherwise.
+
+
+
+In Section \ref{sec:model} we introduce a simplistic approach to chemical
+tagging that relies on probabilistically modelling stellar chemical abundances
+as a mixture of (potentially infinite) multivariate Gaussian distributions.
+
+There we introduce the concept of MML,
+
+
+\section{The Model}
+\ref{sec:the-model}
+
+Here we introduce a simple probablistic approach to chemical tagging, and in
+later sections we will formulate the objective function for MML. Our approach is
+the simplistic in the sense that we will ignore many of the aforementioned
+problems that will plague chemical tagging at scale. Specifically we make the
+following assumptions:
+
+\begin{itemize}
+\item We assume that the data (e.g., the detailed chemical abundances of stars)
+      can be represented by a mixture of multivariate Gaussian distributions.
+\item We will assume that the number of \emph{true} multivariate Gaussian
+      distributions is not known. This assumption applies to our experiements
+      involving generated data, and those using real data.
+\item In addition to not knowing the \emph{number} of multivariate normal
+      distributions, we further assume that the means and covariance matrices of
+      each mixture is unknown.
+\item Here we assume that the covariance matrix of individual components can be
+      described as `free` or `full', in the sense that the data within a cluster
+      can have off-diagonal correlation terms, which are unknown.
+\item In all experiments we will assume that the data have homoskedastic noise
+      properties.
+\item The relative weights (or mixing proportions) of different distributions
+      is unknown. We further will assume a relative (or conditional)
+      probability distribution for each star belonging to a given cluster. That
+      is to say, we do not adopt a `\emph{hard selection}' approach to cluster
+      modelling, where stars would be assigned as definitively belonging to one
+      cluster or another.
+      % TODO: should we actually introduce the partial assignment later when we 
+      % talk about the Gaussian distributions?
+\end{itemize}
+
+We have made relatively few explicit assumptions about the model for the data,
+but even the model described constitutes a very formidable model selection 
+problem. The reason is because we do not know \emph{how many} multivariate
+Gaussian distributions we ought to chose to fit the data. Including more
+mixtures will consistently provide a better fit to the data (in a likelihood
+sense), but we must make some decision or heuristic as to whether the additional
+mixture is justified.
+
+The probability density function $f$ for a multivariate normal distribution with
+$d$ dimensions is given by
+
+\begin{equation}
+    f(y_n|\bm{\mu},\bm{\Sigma}) 
+        = \frac{1}{\sqrt{(2\pi)^d|\bm{\Sigma}|}}
+          \exp{\left[-\frac{1}{2}(\bm{y} - \bm{\mu})^\intercal\bm{\Sigma}^{-1}(\bm{y} - \bm{\mu})\right]}
+\end{equation}
+
+\noindent{}where $\bm{\mu}$ and $\bm{\Sigma}$ is the multivariate mean and 
+covariance matrix, and $\bm{y}$ are the data.  When modelling a mixture of
+Gaussians, there are two approaches in determining assignments (or
+responsibilities) of each star to a given cluster. One approach is to include
+a (discrete) model parameter for every data point, which represents the index
+of the mixture that the observation is assigned to. The second approach is to 
+use a weighted mixture. These two are mathematically identical.
+% TODO
+
+
+\begin{equation}
+% TODO
+\end{equation}
+
+
+\section{Introducing MML}
+% MML formalism
+
+
+\subsection{Prior probabilities on the parameters}
+
+
+We assume a uniform prior on the mixing weights $\bm{w}$, only requiring that
+their summation equals one. We adopt a wide uniform prior of $\mathcal{U}(\bm{\mu}) = [-12, 12]$ on all
+multivariate mean abundances $\bm{\mu}$ (in all $d$ dimensions). This prior
+is sufficiently wide that it has no impact on our inferences (24 orders of
+magnitude!), but remains proper. We adopt a congujate inverted Wishart prior 
+for the covariance matrices in the individual mixtures. Ignoring the effect of 
+our prior on $\bm{\mu}$ gives us a proportional joint prior,
+
+\begin{equation}
+    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} \right.
+\end{equation}
+% TODO: DERIVE THIS.
 
 
 
