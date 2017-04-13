@@ -9,47 +9,75 @@
     \newcommand{\giturl}{UNKNOWN}}
 
 % Define commands
+\newcommand{\article}{\emph{Article}}
 \newcommand{\acronym}[1]{{\small{#1}}}
 \newcommand{\project}[1]{\textsl{#1}}
+
+% Affiliation(s)
+\newcommand{\moca}{
+	\affil{School of Physics and Astronomy, Monash University, 
+		   Melbourne, Clayton VIC 3800, Australia}}
+\newcommand{\claytonfit}{
+	\affil{Faculty of Information Technology, Monash University,
+	       Melbourne, Clayton VIC 3800, Australia}}
+\newcommand{\caulfieldfit}{
+	\affil{Faculty of Information Technology, Monash University,
+		   Melbourne, Caulfield East VIC 3145, Australia}}
+
+
 
 \received{}
 \revised{}
 \accepted{}
 
-\submitjournal{AAS Journals}
+\submitjournal{TBD} % ApJ, MNRAS, PASA?
 
-\shorttitle{Chemical tagging can work, but does it?}
+\shorttitle{Chemical Tagging Using Minimum Message Length}
 \shortauthors{Casey et al.}
 
 \begin{document}
 
-\title{Chemical tagging can work, but does it?}
+\title{Chemical Tagging Using Minimum Message Length}
 
 \correspondingauthor{Andrew R. Casey}
 \email{andrew.casey@monash.edu}
 
-
 \author[0000-0003-0174-0564]{Andrew R. Casey}
-\affil{Monash Centre for Astrophysics, Monash University, Melbourne, 
-	   VIC 3800, Australia}
+\moca
+\claytonfit
 
 \author{(some order of:}
 
 \author[0000-0003-2952-859X]{John Lattanzio}
-\affil{Monash Centre for Astrophysics, Monash University, Melbourne, 
-	   VIC 3800, Australia}
+\moca
 
 \author[0000-0002-0583-5918]{David Dowe} 
+\claytonfit
 
 \author[0000-0002-1716-690X]{Aldeida Aleti}
-
+\caulfieldfit
 
 \author{)}
 
 \author{others?}
  
 \begin{abstract}
-Snobbery.
+Chemical tagging seeks to identify co-natal stars by their present-day 
+photospheric abundances, long after their phase space similarity is lost.
+In principle the detailed chemical abundances of a transformative number of
+stars could be used to reconstruct the evolution of the Milky Way, providing
+insight on supernovae yields, galactic dynamics (e.g., constraints on radial 
+mixing), the initial mass function, as well as the formation and destruction
+of star clusters. Some progress has been made towards chemical tagging, but 
+here we argue that even the \emph{extent} of the problem has not been realised.
+We introduce the Real World problems associated with chemical tagging at scale,
+and describe how currently considered methods will inevitably fail even under
+the most unrealistically optimistic conditions. We introduce the minimum message
+length to the astronomical community as a promising alternative to chemical
+tagging, one which has the capability to address all ensivaged problems with
+chemical tagging simultaneously. We perform chemical tagging experiments with
+infinte Gaussian mixture models, and demonstrate using real and generated data 
+that MML outperforms all other considered penalty techniques. 
 \end{abstract}
 
 \keywords{}
@@ -57,11 +85,14 @@ Snobbery.
 \section{Introduction} 
 \label{sec:introduction}
 
+\citet{Freeman_2002} introduced chemical tagging as an idea to identify groups of stars that formed together in the same gas cloud, which have now become physically separated in phase space.  This idea is attractive because the observable chemical abundances of stars remains largely unchanged throughout a star's lifetime, whereas phase space information is quickly damped through dynamical interactions. Some progress has been made towards chemical tagging in simplistic experiments, but the full extent of chemical tagging has yet to be realised. Indeed, in this \article\ we argue that the full extent \emph{of the problem} of chemical tagging has not even been realised yet.
+
+
 
 
 \acknowledgments
-Wallace
-
+Who?
+Grants.
 
 \software{astropy \citep{Robitaille:2013}, numpy, scipy, scikit-learn} 
 
