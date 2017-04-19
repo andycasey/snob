@@ -106,14 +106,19 @@ infer the formation of the Milky Way.
 Some progress has been made towards chemical tagging in simplistic experiments, 
 but the full extent of chemical tagging has yet to be realised. Indeed, in this 
 \article\ we assert that even \emph{the full extent of the problem} of chemical 
-tagging has yet to be realised. 
-% Some other comments about this?
-
-\subsection*{A Probabilistic Approach to Chemical Tagging}
-\ref{section:the-problem}
+tagging has yet to be realised. Before reviewing the existing literature on
+what has been done with chemical tagging, we will outline the necessary
+components to perform chemical tagging.
 
 
-What is needed to make things work? We outline the 12 disciples:
+
+
+\subsection{The Problem: What's needed for chemical tagging?}
+\label{section:the-problem}
+
+Given a set of stars that have been observed spectroscopically, and detailed
+chemical abundances have been derived, the following issues will arise when
+trying to perform chemical tagging:
 
 \begin{enumerate}
 \item The number of clusters.
@@ -153,6 +158,11 @@ What is needed to make things work? We outline the 12 disciples:
 \end{enumerate}
 
 
+Previous approaches have tried to solve separate components of chemical tagging (e.g. clustering). Some notes on this.
+
+These approaches are not consistent, because the problems are intertwined (e.g., clustering, latent factors).
+
+
 % What work has been done on chemical tagging?
 
 % Unfortunately these approaches have only sought to solve individual problems
@@ -170,7 +180,7 @@ There we introduce the concept of MML,
 
 
 \section{The Model}
-\ref{sec:the-model}
+\label{sec:the-model}
 
 Here we introduce a simple probablistic approach to chemical tagging, and in
 later sections we will formulate the objective function for MML. Our approach is
@@ -214,7 +224,7 @@ The probability density function $f$ for a multivariate normal distribution with
 $d$ dimensions is given by
 
 \begin{equation}
-    f(y_n|\bm{\mu},\bm{\Sigma}) 
+    f(\bm{y}|\bm{\mu},\bm{\Sigma}) 
         = \frac{1}{\sqrt{(2\pi)^d|\bm{\Sigma}|}}
           \exp{\left[-\frac{1}{2}(\bm{y} - \bm{\mu})^\intercal\bm{\Sigma}^{-1}(\bm{y} - \bm{\mu})\right]}
 \end{equation}
@@ -234,8 +244,17 @@ use a weighted mixture. These two are mathematically identical.
 \end{equation}
 
 
-\section{Introducing MML}
-% MML formalism
+\subsection{Minimum Message Length}
+\label{sec:mml}
+
+Background to MML, etc.
+
+We want to minimize the message length.
+
+Link to Bayesian evidence, other things, etc.
+
+In order to minimize the full message length, we must specify the priors on
+our parameters.
 
 
 \subsection{Prior probabilities on the parameters}
@@ -254,6 +273,64 @@ our prior on $\bm{\mu}$ gives us a proportional joint prior,
 \end{equation}
 % TODO: DERIVE THIS.
 
+
+\subsection{Expected Fisher information}
+
+Computing the expected Fisher information requires the second order partial
+derivatives of the negative log-likelihood $-\mathcal{L}(\bm{y}|\bm{\mu},\bm{\Sigma})$.
+This can be tricky for mixtures -- explain why.
+We approximate the determinant of of the Fisher information matrix,
+$|\mathcal{F}(\bm{\mu},\bm{\Sigma})|$ as the product of $|\mathcal{F}\left(\bm{\mu}\right)|$ and $|\mathcal{F}\left(\bm{\Sigma}\right)|$ \citep{Oliver_1996,Roberts_1998}.
+
+% Equation for log-likelihood of the data:
+% \begin{equation}
+% \mathcal{L}\left(\bm{y}|\bm{\mu},\bm{\Sigma}) = -\frac{Nd}{2}\log{\left(2\pi\right)} - \frac{N}{2}\log{|\bm{\Sigma}|} - \frac{1}{2}\Sigma_{i=1}^{N}(\bm{y}_i - \bm{mu})^\intercal{}\Sigma^{-1}(\bm{y}_i - \bm{\mu})
+%\end{equation}
+
+Taking the second derivative of the log-likelihood of the data with respect to $\bm{\mu}$:
+
+\begin{equation}
+\frac{\delta\mathcal{L}}{\delta\bm{\mu}} = \Sigma_{i=1}^{N}\bm{C}^{-1}(\bm{y}_i - \bm{\mu})
+\end{equation}
+
+\begin{equation}
+\frac{\delta^2\mathcal{L}}{\delta\bm{\mu}^2} = N\bm{C}^{-1}
+\end{equation}
+
+
+Computing the Fisher information of the covariance matrix $|\mathcal{F}\left(\bm{C}\right)|$ is harder. For a full covariance matrix with off-diagonal terms, the total
+number of free parameters required is $d(d+1)/2$.
+\citep{Magnus_1988} derived an analytical expression:
+% Dwyer_1967, Bozdogan_1990? Drton_2009?
+% TODO: This derivation is a nightmare to find
+
+
+\begin{equation}
+|\mathcal{F}\left(\bm{C}\right) = N^\frac{d(d+1)}{2}2^{-d}|\bm{C}|^{-(d+1)}
+\end{equation}
+
+Giving the approximate determinant of the Fisher information $|\mathcal{F}\left(\bm{\mu},\bm{C}\right)|$ as:
+
+\begin{eqnarray}
+  |\mathcal{F}\left(\bm{\mu},\bm{C}\right)| & \approx & |\mathcal{F}\left(\bm{\mu}\right)|\cdot|\mathcal{F}\left(\bm{C}\right)| \\
+  & \approx & N^{d}|\bm{C}|^{-1}N^\frac{d(d+1)}{2}2^{-d}|\bm{C}|^{-(d+1)} \\
+  |\mathcal{F}\left(\bm{\mu},\bm{C}\right)| & \approx & N^\frac{d(d+3)}{2}2^{-d}|\bm{C}|^{-(d+2)}
+\end{eqnarray}
+
+
+
+
+
+A common method to estimate the parameters of a Gaussian distribution is by
+maximum likelihood, where the log-likelihood $\mathcal{L}$ is maximized. In
+order to do this, one computes the gradient of the log-likelihood function
+with respect to the parameters and solves the resulting equations.
+
+
+- Encoding the message.
+
+
+- Process of expectation and maximization for each step.
 
 
 \acknowledgments
