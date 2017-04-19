@@ -1,4 +1,4 @@
-
+gmm
 
 """ Test the mixture of Gaussians estimator. """
 
