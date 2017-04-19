@@ -1,0 +1,423 @@
+%% This document is part of the snob project
+%% Copyright 2017 the authors. All rights reserved.
+
+\documentclass{aastex61}
+
+\usepackage{bm}
+
+% For revision history
+\IfFileExists{vc.tex}{\input{vc.tex}}{
+    \newcommand{\githash}{UNKNOWN}
+    \newcommand{\giturl}{UNKNOWN}}
+
+% Define commands
+\newcommand{\article}{\emph{Article}}
+\newcommand{\acronym}[1]{{\small{#1}}}
+\newcommand{\project}[1]{\textsl{#1}}
+
+% Have some maaaath.
+\def\infinity{\rotatebox{90}{8}}
+
+% Affiliation(s)
+\newcommand{\moca}{
+	\affil{School of Physics and Astronomy, Monash University, 
+		   Melbourne, Clayton VIC 3800, Australia}}
+\newcommand{\claytonfit}{
+	\affil{Faculty of Information Technology, Monash University,
+	       Melbourne, Clayton VIC 3800, Australia}}
+\newcommand{\caulfieldfit}{
+	\affil{Faculty of Information Technology, Monash University,
+		   Melbourne, Caulfield East VIC 3145, Australia}}
+
+
+
+\received{}
+\revised{}
+\accepted{}
+
+\submitjournal{TBD} % ApJ, MNRAS, PASA?
+
+\shorttitle{Chemical Tagging Using Minimum Message Length. I.}
+\shortauthors{Casey et al.}
+
+\begin{document}
+
+\title{Chemical Tagging Using Minimum Message Length. I.\\
+       Gaussian Mixture Modelling}
+
+\correspondingauthor{Andrew R. Casey}
+\email{andrew.casey@monash.edu}
+
+\author[0000-0003-0174-0564]{Andrew R. Casey}
+\moca
+\claytonfit
+
+\author{(some order of:}
+
+\author[0000-0003-2952-859X]{John Lattanzio}
+\moca
+
+\author[0000-0002-0583-5918]{David Dowe} 
+\claytonfit
+
+\author[0000-0002-1716-690X]{Aldeida Aleti}
+\caulfieldfit
+
+\author{)}
+
+\author{others?}
+ 
+\begin{abstract}
+Chemical tagging seeks to identify co-natal stars by their present-day 
+photospheric abundances, long after their phase space similarity is lost.
+In principle the detailed chemical abundances of a transformative number of
+stars could be used to reconstruct the evolution of the Milky Way, providing
+insight on supernovae yields, galactic dynamics (e.g., constraints on radial 
+mixing), the initial mass function, as well as the formation and destruction
+of star clusters. Some progress has been made towards chemical tagging, but 
+here we argue that even the \emph{extent} of the problem has not been realised.
+We introduce the Real World problems associated with chemical tagging at scale,
+and describe how currently considered methods will inevitably fail even under
+the most unrealistically optimistic conditions. We introduce the minimum message
+length to the astronomical community as a promising alternative to chemical
+tagging, one which has the capability to address all ensivaged problems with
+chemical tagging simultaneously. We perform chemical tagging experiments with
+infinte Gaussian mixture models, and demonstrate using real and generated data 
+that MML outperforms all other considered penalty techniques. 
+\end{abstract}
+
+\keywords{}
+
+\section{Introduction} 
+\label{sec:introduction}
+
+\citet{Freeman_2002} introduced chemical tagging as an idea to identify groups 
+of stars that formed together in the same gas cloud, which are no longer
+identifiable in phase space, either by their physical location or orbital
+dynamics.  This idea is attractive because the observable chemical abundances of 
+stars remains largely unchanged throughout a star's lifetime, whereas phase 
+space information is quickly damped through dynamical interactions. Moreover, 
+while most stars are thought to form in star clusters \citep{someone}, only the
+most massive or isolated star clusters are able to survive the star formation
+process \citep{someone2}. For this reason we rely on `field' stars -- that is,
+stars that are not clearly associated with a known star cluster -- in order to
+infer the formation of the Milky Way.
+
+
+Some progress has been made towards chemical tagging in simplistic experiments, 
+but the full extent of chemical tagging has yet to be realised. Indeed, in this 
+\article\ we assert that even \emph{the full extent of the problem} of chemical 
+tagging has yet to be realised. Before reviewing the existing literature on
+what has been done with chemical tagging, we will outline the necessary
+components to perform chemical tagging.
+
+
+\subsection{The Problem: What's needed for chemical tagging?}
+\label{section:the-problem}
+
+Given a set of stars that have been observed spectroscopically, and detailed
+chemical abundances have been derived, the following issues will arise when
+trying to perform chemical tagging:
+
+\begin{enumerate}
+\item The number of star clusters (or star-forming events) where at least one
+      star was observed and detailed chemical abundances were derived.
+\item The number of latent factors (e.g., supernovae yields, AGB yields).
+      Within the chemical tagging literature, this is commonly referred to as
+      the number of `effective chemical dimensions'.
+\item The multivariate factor loads of individual latent factors. For example,
+      if core-collapse supernovae and AGB stars had both contributed to the
+      chemical abundances of all stars in the sample, then the
+      \emph{factor loads} would be the \emph{yield} of the supernovae, or the
+      yield of relative abundances that were produced by the AGB star. Each
+      star will be affected differently by these yields (see next item).
+\item The relative \emph{scoring} of different latent factors on each star.
+      This is a scaling that is applied to the latent yields. Continuing our
+      analogy on yields from core-collapse supernovae and AGB stars, the
+      \emph{factor scores} can be thought of as the relative contributions of
+      the different factor loads, for a single star.
+\item The relative weighting (yet another latent factor, which is however not
+      common between all mixtures) of individual mixtures.
+\item The multivariate mean abundances and covariance matrices of each star
+      cluster, where the covariance matrix includes off-diagonal terms that
+      describe the \emph{data} correlations (e.g., the correlations that result
+      from trying to measure multiple abundances from the same data).
+\item The intrinsic \emph{specific variances} of the individual abundances.
+\item Atomic diffusion, veiling, and thermohaline mixing: The surface chemical
+      abundances of stars \emph{will change} over its lifetime.
+\item Probabilistic priors (perhaps very hard priors) on joint responsibilities
+      of stars that are specified from astrometric constraints.
+\item There are missing data. 
+\item There are \emph{upper limits} on some data.\footnote{
+        Spectroscopists are probably the worst in the Universe when it comes to
+        reporting upper limits. They will report an `\emph{upper limit}', when
+        what might mean is the \emph{absolute limit} where there is zero
+        likelihood that the true value is above the given point estimate (which might as well be $+\infinity$, or
+        they may describe a \emph{pseudo-1$\sigma$} limit which is estimated
+        from the locally (yet covariant!) heteroskedastic noise in the data (which often might as well be $\approx$0).
+        In reality, an upper limit ought to be given as a probability density
+        function that is skewed in one direction, perhaps similar to the shape
+        of a log-normal distribution. In any case, the confidence to which they
+        describe their `\emph{upper limit}' ought to be given.}
+\item There are correlations in the measurements that result from trying to
+      measure two (or more) abundances from the same data. As an example,
+      consider a rare -- yet important -- chemical abundance that has a single
+      atomic absorption line which is blended with a more common elemental
+      abundance. In all likelihood, there will be a strong positive correlation
+      between the abundance derived between the rare and more common elemental
+      abundance.
+\end{enumerate}
+
+
+Previous approaches have tried to solve separate components of chemical tagging (e.g. clustering). Some notes on this.
+
+These approaches are not consistent, because the problems are intertwined (e.g., clustering, latent factors).
+
+
+% What work has been done on chemical tagging?
+
+% Unfortunately these approaches have only sought to solve individual problems
+% within chemical tagging. Doing so -- and then later using those results to
+% infer something else about the galaxy -- makes both results inconsistent,
+% both statistically, and otherwise.
+
+
+
+In Section \ref{sec:model} we introduce a simplistic approach to chemical
+tagging that relies on probabilistically modelling stellar chemical abundances
+as a mixture of (potentially infinite) multivariate Gaussian distributions.
+
+
+
+In this \article\ we will introduce a simple probabilistic approach to
+chemical tagging, where the data are modelled as a mixture of multivariate
+Gaussian distributions (Section \ref{sec:the-model}). In Section \ref{sec:mml}
+we introduce the principle of minimum message length (MML), and formulate our
+objective function by minimising the total message length. Our model is
+simplistic in the sense that we will ignore many of the self-consistency
+issues already introduced. However, in Section \ref{sec:experiments} we show
+that our MML-based approach is superior to all other methods considered for
+chemical tagging, all of which cannot alleviate the self-consistency issues.
+In Section \ref{sec:discussion} we will describe how MML can overcome these
+aforementioned issues, in order to construct a fully-consistent probabilistic
+approach to chemical tagging.
+
+
+
+\section{The Model}
+\label{sec:the-model}
+
+We make the following explicit assumptions:
+
+\begin{itemize}
+\item We assume that the data (e.g., the $D$ detailed chemical abundances of 
+      $N$ stars) can be represented by a mixture of $K$ multivariate Gaussian
+      distributions.
+\item We assume that there are no missing data values. For example, if a star
+      has been observed, then there is a complete set of $D$ chemical 
+      abundances available.
+\item We will assume that the number of \emph{true} multivariate Gaussian
+      distributions $K_{true}$ is not known. This assumption applies to our 
+      experiements involving generated data, and those using real data.
+\item In addition to not knowing the \emph{number} of multivariate normal
+      distributions, we further assume that the means $\bm{\mu}$ and 
+      covariance matrices $\bm{C}$ of each $K$th mixture is unknown.
+\item We assume that the covariance matrix of individual components can be
+      described as `free' or `full', insomuch that the data within a cluster
+      can have off-diagonal correlation terms, and those terms are unknown.
+\item In all experiments we will assume that the data have homoskedastic noise
+      properties.
+\item The relative weights $\bm{w}$ (or mixing proportions) of $K$ 
+      distributions is unknown. 
+\item We assume a relative (or conditional) probability distribution for each 
+      star belonging to a given cluster. That is to say that we do not adopt a 
+      `\emph{hard selection}' approach to cluster modelling, where stars would
+      be assigned as definitively belonging to one cluster or another. Our
+      approach could be described as `\emph{soft} clustering'. This assumption
+      has practical numerical outcomes and implications for the message length.
+\end{itemize}
+
+We have made relatively few explicit assumptions about the model for the data,
+but even the model described constitutes a very formidable model selection 
+problem. This is because we do not know \emph{how many} multivariate Gaussian
+distributions we ought to chose to fit the data. Including more mixtures will
+consistently provide a better fit to the data (in a likelihood sense), but we 
+must make some decision or heuristic as to whether the additional mixture is 
+justified.
+
+The probability density function $f$ for a multivariate normal distribution 
+with $d$ dimensions is given by
+
+\begin{equation}
+    f(\bm{y}|\bm{\mu},\bm{\Sigma}) 
+        = \frac{1}{\sqrt{(2\pi)^d|\bm{\Sigma}|}}
+          \exp{\left[-\frac{1}{2}(\bm{y} - \bm{\mu})^\intercal\bm{\Sigma}^{-1}(\bm{y} - \bm{\mu})\right]}
+\end{equation}
+
+\noindent{}where $\bm{\mu}$ and $\bm{\Sigma}$ is the multivariate mean and 
+covariance matrix, and $\bm{y}$ are the data.  
+
+% Full probability for the data.
+
+
+When modelling a mixture of
+Gaussians, there are two approaches in determining assignments (or
+responsibilities) of each star to a given cluster. One approach is to include
+a (discrete) model parameter for every data point, which represents the index
+of the mixture that the observation is assigned to. The second approach is to 
+use a weighted mixture. These two are mathematically identical.
+% TODO
+
+
+\begin{equation}
+% TODO
+\end{equation}
+
+
+\subsection{Minimum Message Length}
+\label{sec:mml}
+
+Background to MML, etc.
+
+We want to minimize the message length.
+
+Link to Bayesian evidence, other things, etc.
+
+In order to minimize the full message length, we must specify the priors on
+our parameters.
+
+
+\subsection{Prior probabilities on the parameters}
+
+
+We assume a uniform prior on the mixing weights $\bm{w}$, only requiring that
+$\sum_{k=1}^{K}w_k = 1$. A useful extension of this work might be to impose
+a Dirchlet prior on the mixing weights $\bm{w}$, or a distribution inspired by
+the stellar mass function and observed selection function.
+
+
+We adopt an improper uniform prior of 
+$\mathcal{U}(\bm{\mu}) = [-\infinity, \infinity]$ on all multivariate mean 
+abundances $\bm{\mu}$ (in all $D$ dimensions). This prior has no impact on
+our inferences and becomes proper when it enters the (accepted) posterior
+distribution. We similarily could adopt a proper and large uniform prior on all 
+mean abundances of $\mathcal{U}(\bm{\mu}) = [-12, 12]$ and the result would be
+the same.
+
+We adopt a congujate inverted Wishart prior for the covariance matrices in the
+individual mixtures. The joint prior density for the parameters of a single
+mixture is given by the limiting form of the normal inverted-Wishart
+density \citep[e.g., Section 5.2.3 of ][]{Schafer_1990}:
+
+
+\begin{equation}
+    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} \quad .
+\end{equation}
+
+
+
+\subsection{Expected Fisher information}
+
+Computing the expected Fisher information requires the second order partial
+derivatives of the negative log-likelihood $-\mathcal{L}(\bm{y}|\bm{\mu},\bm{\Sigma})$.
+This can be tricky for mixtures -- explain why.
+We approximate the determinant of of the Fisher information matrix,
+$|\mathcal{F}(\bm{\mu},\bm{\Sigma})|$ as the product of $|\mathcal{F}\left(\bm{\mu}\right)|$ and $|\mathcal{F}\left(\bm{\Sigma}\right)|$ \citep{Oliver_1996,Roberts_1998}.
+
+% Equation for log-likelihood of the data:
+% \begin{equation}
+% \mathcal{L}\left(\bm{y}|\bm{\mu},\bm{\Sigma}) = -\frac{Nd}{2}\log{\left(2\pi\right)} - \frac{N}{2}\log{|\bm{\Sigma}|} - \frac{1}{2}\Sigma_{i=1}^{N}(\bm{y}_i - \bm{mu})^\intercal{}\Sigma^{-1}(\bm{y}_i - \bm{\mu})
+%\end{equation}
+
+Taking the second derivative of the log-likelihood of the data with respect to $\bm{\mu}$:
+
+\begin{equation}
+\frac{\delta\mathcal{L}}{\delta\bm{\mu}} = \Sigma_{i=1}^{N}\bm{C}^{-1}(\bm{y}_i - \bm{\mu})
+\end{equation}
+
+\begin{equation}
+\frac{\delta^2\mathcal{L}}{\delta\bm{\mu}^2} = N\bm{C}^{-1}
+\end{equation}
+
+
+Computing the Fisher information of the covariance matrix $|\mathcal{F}\left(\bm{C}\right)|$ is harder. For a full covariance matrix with off-diagonal terms, the total
+number of free parameters required is $d(d+1)/2$.
+\citep{Magnus_1988} derived an analytical expression:
+% Dwyer_1967, Bozdogan_1990? Drton_2009?
+% TODO: This derivation is a nightmare to find
+
+
+\begin{equation}
+|\mathcal{F}\left(\bm{C}\right) = N^\frac{d(d+1)}{2}2^{-d}|\bm{C}|^{-(d+1)}
+\end{equation}
+
+Giving the approximate determinant of the Fisher information $|\mathcal{F}\left(\bm{\mu},\bm{C}\right)|$ as:
+
+\begin{eqnarray}
+  |\mathcal{F}\left(\bm{\mu},\bm{C}\right)| & \approx & |\mathcal{F}\left(\bm{\mu}\right)|\cdot|\mathcal{F}\left(\bm{C}\right)| \\
+  & \approx & N^{d}|\bm{C}|^{-1}N^\frac{d(d+1)}{2}2^{-d}|\bm{C}|^{-(d+1)} \\
+  |\mathcal{F}\left(\bm{\mu},\bm{C}\right)| & \approx & N^\frac{d(d+3)}{2}2^{-d}|\bm{C}|^{-(d+2)}
+\end{eqnarray}
+
+
+
+
+
+A common method to estimate the parameters of a Gaussian distribution is by
+maximum likelihood, where the log-likelihood $\mathcal{L}$ is maximized. In
+order to do this, one computes the gradient of the log-likelihood function
+with respect to the parameters and solves the resulting equations.
+
+
+- Encoding the message.
+
+
+- Process of expectation and maximization for each step.
+
+
+\section{Experiments}
+\label{sec:experiments}
+
+Here we describe simple chemical tagging experiments that are so optimistic
+that they could be considered laughable, but ones which will still fail for
+even the most simplistic chemical tagging approaches.
+
+Each experiment will edge closer to a representative example of chemical
+tagging.
+
+\subsection{Experiment 0: Position and Velocity information}
+
+\subsection{Experiment 1: Using clusters, full complement of chemical abundances}
+
+\subsection{Experiment 2: Using all clusters, full complement of chemical abundances, random fractions of field stars}
+
+\subsection{Experiment 3: Using clusters, limited set of chemical abundances}
+
+\subsection{Experiment 4: Fake data to replicate clusters, but use latent factor}
+
+\subsection{Experiment 5: Fake data to replicate clusters, but use multiple latent factors}
+
+
+\section{Discussion}
+\label{sec:discussion}
+
+
+\acknowledgments
+
+This research is supported by an Australian Research Council Discovery Project
+grant (DP160100637). 
+Source code for this project is available at \texttt{\giturl}. This document
+was compiled on \gitdate\ from revision hash \texttt{\githash} in that
+repository. 
+
+
+\software{astropy \citep{Robitaille:2013}, numpy, scipy, scikit-learn} 
+
+\begin{thebibliography}{}
+
+\bibitem[Astropy Collaboration et al.(2013)]{Robitaille:2013} Astropy Collaboration, Robitaille, T.~P., Tollerud, E.~J., et al.\ 2013, \aap, 558, A33 
+
+\end{thebibliography}
+
+
+\end{document}
