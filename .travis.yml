@@ -58,5 +58,5 @@ notifications:
     recipients:
       - andrew.casey@monash.edu 
     on_success: change
-    on_failure: always
+    on_failure: change
 
