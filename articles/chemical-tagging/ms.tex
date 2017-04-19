@@ -37,12 +37,13 @@
 
 \submitjournal{TBD} % ApJ, MNRAS, PASA?
 
-\shorttitle{Chemical Tagging Using Minimum Message Length}
+\shorttitle{Chemical Tagging Using Minimum Message Length. I.}
 \shortauthors{Casey et al.}
 
 \begin{document}
 
-\title{Chemical Tagging Using Minimum Message Length}
+\title{Chemical Tagging Using Minimum Message Length. I.\\
+       Gaussian Mixture Modelling}
 
 \correspondingauthor{Andrew R. Casey}
 \email{andrew.casey@monash.edu}
@@ -111,8 +112,6 @@ what has been done with chemical tagging, we will outline the necessary
 components to perform chemical tagging.
 
 
-
-
 \subsection{The Problem: What's needed for chemical tagging?}
 \label{section:the-problem}
 
@@ -121,22 +120,34 @@ chemical abundances have been derived, the following issues will arise when
 trying to perform chemical tagging:
 
 \begin{enumerate}
-\item The number of clusters.
+\item The number of star clusters (or star-forming events) where at least one
+      star was observed and detailed chemical abundances were derived.
 \item The number of latent factors (e.g., supernovae yields, AGB yields).
-\item The multivariate factor loads of individual latent factors.
+      Within the chemical tagging literature, this is commonly referred to as
+      the number of `effective chemical dimensions'.
+\item The multivariate factor loads of individual latent factors. For example,
+      if core-collapse supernovae and AGB stars had both contributed to the
+      chemical abundances of all stars in the sample, then the
+      \emph{factor loads} would be the \emph{yield} of the supernovae, or the
+      yield of relative abundances that were produced by the AGB star. Each
+      star will be affected differently by these yields (see next item).
+\item The relative \emph{scoring} of different latent factors on each star.
+      This is a scaling that is applied to the latent yields. Continuing our
+      analogy on yields from core-collapse supernovae and AGB stars, the
+      \emph{factor scores} can be thought of as the relative contributions of
+      the different factor loads, for a single star.
 \item The relative weighting (yet another latent factor, which is however not
       common between all mixtures) of individual mixtures.
-\item The relative \emph{scoring} of different latent factors on each star.
-\item The intrinsic \emph{specific variances} of the individual abundances.
 \item The multivariate mean abundances and covariance matrices of each star
       cluster, where the covariance matrix includes off-diagonal terms that
       describe the \emph{data} correlations (e.g., the correlations that result
       from trying to measure multiple abundances from the same data).
+\item The intrinsic \emph{specific variances} of the individual abundances.
 \item Atomic diffusion, veiling, and thermohaline mixing: The surface chemical
       abundances of stars \emph{will change} over its lifetime.
 \item Probabilistic priors (perhaps very hard priors) on joint responsibilities
       of stars that are specified from astrometric constraints.
-\item There are missing data. Accept it.
+\item There are missing data. 
 \item There are \emph{upper limits} on some data.\footnote{
         Spectroscopists are probably the worst in the Universe when it comes to
         reporting upper limits. They will report an `\emph{upper limit}', when
@@ -176,52 +187,66 @@ In Section \ref{sec:model} we introduce a simplistic approach to chemical
 tagging that relies on probabilistically modelling stellar chemical abundances
 as a mixture of (potentially infinite) multivariate Gaussian distributions.
 
-There we introduce the concept of MML,
+
+
+In this \article\ we will introduce a simple probabilistic approach to
+chemical tagging, where the data are modelled as a mixture of multivariate
+Gaussian distributions (Section \ref{sec:the-model}). In Section \ref{sec:mml}
+we introduce the principle of minimum message length (MML), and formulate our
+objective function by minimising the total message length. Our model is
+simplistic in the sense that we will ignore many of the self-consistency
+issues already introduced. However, in Section \ref{sec:experiments} we show
+that our MML-based approach is superior to all other methods considered for
+chemical tagging, all of which cannot alleviate the self-consistency issues.
+In Section \ref{sec:discussion} we will describe how MML can overcome these
+aforementioned issues, in order to construct a fully-consistent probabilistic
+approach to chemical tagging.
+
 
 
 \section{The Model}
 \label{sec:the-model}
 
-Here we introduce a simple probablistic approach to chemical tagging, and in
-later sections we will formulate the objective function for MML. Our approach is
-the simplistic in the sense that we will ignore many of the aforementioned
-problems that will plague chemical tagging at scale. Specifically we make the
-following assumptions:
+We make the following explicit assumptions:
 
 \begin{itemize}
-\item We assume that the data (e.g., the detailed chemical abundances of stars)
-      can be represented by a mixture of multivariate Gaussian distributions.
+\item We assume that the data (e.g., the $D$ detailed chemical abundances of 
+      $N$ stars) can be represented by a mixture of $K$ multivariate Gaussian
+      distributions.
+\item We assume that there are no missing data values. For example, if a star
+      has been observed, then there is a complete set of $D$ chemical 
+      abundances available.
 \item We will assume that the number of \emph{true} multivariate Gaussian
-      distributions is not known. This assumption applies to our experiements
-      involving generated data, and those using real data.
+      distributions $K_{true}$ is not known. This assumption applies to our 
+      experiements involving generated data, and those using real data.
 \item In addition to not knowing the \emph{number} of multivariate normal
-      distributions, we further assume that the means and covariance matrices of
-      each mixture is unknown.
-\item Here we assume that the covariance matrix of individual components can be
-      described as `free` or `full', in the sense that the data within a cluster
-      can have off-diagonal correlation terms, which are unknown.
+      distributions, we further assume that the means $\bm{\mu}$ and 
+      covariance matrices $\bm{C}$ of each $K$th mixture is unknown.
+\item We assume that the covariance matrix of individual components can be
+      described as `free' or `full', insomuch that the data within a cluster
+      can have off-diagonal correlation terms, and those terms are unknown.
 \item In all experiments we will assume that the data have homoskedastic noise
       properties.
-\item The relative weights (or mixing proportions) of different distributions
-      is unknown. We further will assume a relative (or conditional)
-      probability distribution for each star belonging to a given cluster. That
-      is to say, we do not adopt a `\emph{hard selection}' approach to cluster
-      modelling, where stars would be assigned as definitively belonging to one
-      cluster or another.
-      % TODO: should we actually introduce the partial assignment later when we 
-      % talk about the Gaussian distributions?
+\item The relative weights $\bm{w}$ (or mixing proportions) of $K$ 
+      distributions is unknown. 
+\item We assume a relative (or conditional) probability distribution for each 
+      star belonging to a given cluster. That is to say that we do not adopt a 
+      `\emph{hard selection}' approach to cluster modelling, where stars would
+      be assigned as definitively belonging to one cluster or another. Our
+      approach could be described as `\emph{soft} clustering'. This assumption
+      has practical numerical outcomes and implications for the message length.
 \end{itemize}
 
 We have made relatively few explicit assumptions about the model for the data,
 but even the model described constitutes a very formidable model selection 
-problem. The reason is because we do not know \emph{how many} multivariate
-Gaussian distributions we ought to chose to fit the data. Including more
-mixtures will consistently provide a better fit to the data (in a likelihood
-sense), but we must make some decision or heuristic as to whether the additional
-mixture is justified.
+problem. This is because we do not know \emph{how many} multivariate Gaussian
+distributions we ought to chose to fit the data. Including more mixtures will
+consistently provide a better fit to the data (in a likelihood sense), but we 
+must make some decision or heuristic as to whether the additional mixture is 
+justified.
 
-The probability density function $f$ for a multivariate normal distribution with
-$d$ dimensions is given by
+The probability density function $f$ for a multivariate normal distribution 
+with $d$ dimensions is given by
 
 \begin{equation}
     f(\bm{y}|\bm{\mu},\bm{\Sigma}) 
@@ -230,7 +255,12 @@ $d$ dimensions is given by
 \end{equation}
 
 \noindent{}where $\bm{\mu}$ and $\bm{\Sigma}$ is the multivariate mean and 
-covariance matrix, and $\bm{y}$ are the data.  When modelling a mixture of
+covariance matrix, and $\bm{y}$ are the data.  
+
+% Full probability for the data.
+
+
+When modelling a mixture of
 Gaussians, there are two approaches in determining assignments (or
 responsibilities) of each star to a given cluster. One approach is to include
 a (discrete) model parameter for every data point, which represents the index
@@ -261,17 +291,29 @@ our parameters.
 
 
 We assume a uniform prior on the mixing weights $\bm{w}$, only requiring that
-their summation equals one. We adopt a wide uniform prior of $\mathcal{U}(\bm{\mu}) = [-12, 12]$ on all
-multivariate mean abundances $\bm{\mu}$ (in all $d$ dimensions). This prior
-is sufficiently wide that it has no impact on our inferences (24 orders of
-magnitude!), but remains proper. We adopt a congujate inverted Wishart prior 
-for the covariance matrices in the individual mixtures. Ignoring the effect of 
-our prior on $\bm{\mu}$ gives us a proportional joint prior,
+$\sum_{k=1}^{K}w_k = 1$. A useful extension of this work might be to impose
+a Dirchlet prior on the mixing weights $\bm{w}$, or a distribution inspired by
+the stellar mass function and observed selection function.
+
+
+We adopt an improper uniform prior of 
+$\mathcal{U}(\bm{\mu}) = [-\infinity, \infinity]$ on all multivariate mean 
+abundances $\bm{\mu}$ (in all $D$ dimensions). This prior has no impact on
+our inferences and becomes proper when it enters the (accepted) posterior
+distribution. We similarily could adopt a proper and large uniform prior on all 
+mean abundances of $\mathcal{U}(\bm{\mu}) = [-12, 12]$ and the result would be
+the same.
+
+We adopt a congujate inverted Wishart prior for the covariance matrices in the
+individual mixtures. The joint prior density for the parameters of a single
+mixture is given by the limiting form of the normal inverted-Wishart
+density \citep[e.g., Section 5.2.3 of ][]{Schafer_1990}:
+
 
 \begin{equation}
-    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} 
+    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} \quad .
 \end{equation}
-% TODO: DERIVE THIS.
+
 
 
 \subsection{Expected Fisher information}
@@ -334,8 +376,13 @@ with respect to the parameters and solves the resulting equations.
 
 
 \acknowledgments
-Who?
-Grants.
+
+This research is supported by an Australian Research Council Discovery Project
+grant (DP160100637). 
+Source code for this project is available at \texttt{\giturl}. This document
+was compiled on \gitdate\ from revision hash \texttt{\githash} in that
+repository. 
+
 
 \software{astropy \citep{Robitaille:2013}, numpy, scipy, scikit-learn} 
 
