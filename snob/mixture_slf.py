@@ -52,13 +52,12 @@ class SLFGaussianMixture(object):
     """
 
     parameter_names = (
-        "means", "factor_loads", "factor_scores", "specific_variances")
+        "factor_loads", "factor_scores", "specific_variances",
+        "means", "covariances", "weights")
 
     def __init__(self, num_components, tolerance=1e-5, covariance_type="full", 
         covariance_regularization=0, max_iter=10000, 
         initialization_method="kmeans", **kwargs):
-
-        assert num_components == 1
 
         num_components = int(num_components)
         if 1 > num_components:
@@ -144,7 +143,63 @@ class SLFGaussianMixture(object):
             the number of dimensions per observation.
         """
 
+        # Estimate the latent factor first.
         N, K = y.shape
+
+        means = np.mean(y, axis=0)
+        w = y - means
+        correlation_matrix = np.corrcoef(w.T)
+
+        U, S, V = np.linalg.svd(correlation_matrix)
+
+        # Set the initial values for b as the principal eigenvector, scaled by
+        # the square-root of the principal eigenvalue
+        b = V[0] * S[0]**0.5
+
+        specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) \
+                    / ((b*b + 1.0) * (N - 1)))
+        factor_loads = specific_sigmas * b
+        _y = (y - means)/specific_sigmas
+
+        b_sq = np.sum(b**2)
+        factor_scores = np.dot(_y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
+        specific_variances = specific_sigmas**2
+
+        # Subtract off the factor loads and factor scores, then estimate the
+        # cluster properties.
+        factor_scores = np.atleast_2d(factor_scores)
+        factor_loads = np.atleast_2d(factor_loads)
+        y_nlf = y - np.dot(factor_scores.T, factor_loads)
+
+        if self.initialization_method == "kmeans":
+
+            # Do k-means on the data without the latent factor.
+            responsibility = np.zeros((N, self.num_components))
+            kmeans = cluster.KMeans(
+                n_clusters=self.num_components, n_init=1, **kwargs)
+            labels = kmeans.fit(y_nlf).labels_
+            responsibility[np.arange(N), labels] = 1
+
+        elif self.initialization_method == "random":
+            responsibility = np.random.randint(0, self.num_components, size=N)
+            responsibility /= responsibility.sum(axis=1)[:, np.newaxis]
+
+        else:
+            raise ValueError("Unknown initialization method: {}".format(
+                self.initialization_method))
+
+        return self._maximization(y, responsibility)
+        """
+        # Get the means
+        self.set_para
+        
+        raise a
+
+        N, K = y.shape
+
+
+
+
 
         means = np.atleast_2d(np.mean(y, axis=0))
 
@@ -162,7 +217,7 @@ class SLFGaussianMixture(object):
         self.set_parameters(means, factor_scores, factor_loads, specific_variances)
 
         return self._maximization(y, responsibility)
-
+        """
 
     def _soft_initialize(self, y, **kwargs):
         """
@@ -226,6 +281,10 @@ class SLFGaussianMixture(object):
             where :math:`N` is the number of observations, and :math:`D` is
             the number of dimensions per observation.
         """
+
+        foo = self.initialize_parameters(x)
+
+        raise a
 
         # Solve for latent factors first.
         N, K = x.shape
@@ -325,7 +384,7 @@ class SLFGaussianMixture(object):
         return (log_prob_norm, np.zeros((N, 1)))
 
 
-    def _maximization(self, x, responsibility, parent_responsibility=1):
+    def _maximization(self, y, responsibility):
         r"""
         Perform the maximization step of the expectation-maximization algorithm
         on all components.
@@ -338,41 +397,100 @@ class SLFGaussianMixture(object):
         :param responsibility: 
             The responsibility matrix for all :math:`N` observations being
             partially assigned to each :math:`K` component.
-
-        :param parent_responsibility: [optional]
-            An array of length :math:`N` giving the parent component 
-            responsibilities (default: ``1``). Only useful if the maximization
-            step is to be performed on sub-mixtures.
         """
 
 
-        N, K = x.shape
+        # Update the estimate of the latent factor, after subtracting the
+        # means from each cluster.
+        N, M = responsibility.shape
+        N, K = y.shape
 
-        w = x - self.means
-        y = w/self.specific_variances
-        b = self.factor_loads/self.specific_variances
-        b_squared = np.sum(b**2)
-        #v_squared = np.sum(v**2)
+        effective_membership = np.sum(responsibility, axis=0)
 
+        means = np.zeros((M, K))
+        for m in range(M):
+            means[m] = np.sum(responsibility[:, m] * y.T, axis=1) \
+                     / effective_membership[m]
 
-        Y = np.dot(y.T, y)
+        # Subtract the means, weighted by responsibilities.
+        w_means = np.dot(responsibility, means)
 
-        # New MML estimates.
-        new_means = np.mean(x, axis=0)
+        w = y - w_means
+        correlation_matrix = np.corrcoef(w.T)
+
+        U, S, V = np.linalg.svd(correlation_matrix)
+
+        # Set the initial values for b as the principal eigenvector, scaled by
+        # the square-root of the principal eigenvalue
+        b = V[0] * S[0]**0.5
+
+        # Iteratively solve for the vector b.
+        for iteration in range(self.max_iter):
+
+            # The iteration scheme is from Wallace & Freeman (1992)
+            if (N - 1) * np.sum(b**2) <= K:
+                b = np.zeros(K)
+
+            specific_variances = np.sum(w**2, axis=0) \
+                               / ((N - 1) * (1 + b**2))
+            specific_sigmas = np.sqrt(np.atleast_2d(specific_variances))
+
+            b_sq = np.sum(b**2)
+            if b_sq == 0:
+                raise NotImplementedError("a latent factor is not justified")
+                break
+
+            # Note: Step (c) of Wallace & Freeman (1992) suggest to compute
+            #       Y as Y_{kj} = \frac{V_{kj}}{\sigma_{k}\sigma_{j}}, where
+            #       V_{kj} is the kj entry of the correlation matrix, but that
+            #       didn't seem to work,...
+            Y = np.dot(w.T, w) / np.dot(specific_sigmas.T, specific_sigmas)
+
+            new_b = (np.dot(Y, b) * (1 - K/(N - 1) * b_sq)) \
+                  / ((N - 1) * (1 + b_sq))
+
+            change = np.sum(np.abs(b - new_b))
+            assert np.isfinite(change)
+            b = new_b        
+
+            logger.debug(
+                "Iteration #{} on SLF, delta: {}".format(iteration, change))
+
+            print(iteration, change)
+            if self.tolerance >= change:
+                break
+
+        specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) \
+                    / ((b*b + 1.0) * (N - 1)))
+        factor_loads = specific_sigmas * b
+        scaled_y = (y - w_means)/specific_sigmas
+
+        b_sq = np.sum(b**2)
+        factor_scores = np.dot(scaled_y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
+        specific_variances = specific_sigmas**2
         
-        U, S, V = np.linalg.svd(Y/N)
-        new_b = V[0]
+        factor_loads = factor_loads.reshape((1, -1))
+        factor_scores = factor_scores.reshape((-1, 1))
+        specific_variances = specific_variances.reshape((1, -1))
 
-        # TODO: use old b, or new b?
-        new_specific_variances = np.sum(w**2, axis=0) \
-                               / ((N - 1) * (1 + b_squared))
+        # Update the covariance matrices of the clusters.
+        # TODO: this should be done differently, because the specific variances
+        covariances = np.zeros((M, K, K))
+        for m in range(M):
 
-        new_factor_loads = new_b * np.sqrt(new_specific_variances)
-        new_factor_scores = (1 - 1.0/N) * np.dot(y, b.T) / S[0]
+            diff = y - w_means - np.dot(factor_scores, factor_loads)
+            denom = effective_membership[m]
+            denom = denom - 1 if denom > 1 else denom
 
+            covariances[m] = np.dot(responsibility[:, m] * diff.T, diff) \
+                           / denom
+            covariances[m][::M + 1] += self.covariance_regularization
 
-        return self.set_parameters(new_means, new_factor_scores,
-            new_factor_loads, new_specific_variances)
+        weights = (effective_membership + 0.5)/(N + M/2.0)
+
+        return self.set_parameters(
+            factor_loads, factor_scores, specific_variances,
+            means, covariances, weights)
 
 
 
@@ -594,8 +712,15 @@ def _estimate_log_latent_factor_prob(y, means, factor_scores, factor_loads,
     specific_variances):
 
     N, K = y.shape
+    M, K = means.shape
 
     specific_inverse_variances = 1.0/specific_variances
+    log_prob = np.empty((N, M))
+    for m, mu in enumerate(means):
+        squared_diff = (y - mu - np.dot(factor_scores, factor_loads))**2
+
+        raise a
+
     squared_diff = (y - means - np.dot(factor_scores, factor_loads))**2
 
     return - 0.5 * K * N * np.log(2 * np.pi) \
