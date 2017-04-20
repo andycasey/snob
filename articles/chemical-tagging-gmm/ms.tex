@@ -15,6 +15,15 @@
 \newcommand{\acronym}[1]{{\small{#1}}}
 \newcommand{\project}[1]{\textsl{#1}}
 
+% Surveys
+\newcommand{\apogee}{\acronym{APOGEE}}
+\newcommand{\ges}{\acronym{GES}}
+\newcommand{\hermes}{\acronym{HERMES}}
+\newcommand{\galah}{\acronym{GALAH}}
+\newcommand{\fourmost}{\acronym{4MOST}}
+\newcommand{\weave}{\acronym{WEAVE}}
+\newcommand{\gaia}{\project{Gaia}}
+
 % Have some maaaath.
 \def\infinity{\rotatebox{90}{8}}
 
@@ -91,17 +100,68 @@ that MML outperforms all other considered penalty techniques.
 \section{Introduction} 
 \label{sec:introduction}
 
-\citet{Freeman_2002} introduced chemical tagging as an idea to identify groups 
-of stars that formed together in the same gas cloud, which are no longer
-identifiable in phase space, either by their physical location or orbital
-dynamics.  This idea is attractive because the observable chemical abundances of 
+\citet{Freeman_2002} introduced the idea of chemical tagging to identify 
+groups of stars that formed together in the same gas cloud, which are no 
+longer identifiable from their physical proximity or orbital properties.
+This idea is attractive because the observable chemical abundances of 
 stars remains largely unchanged throughout a star's lifetime, whereas phase 
-space information is quickly damped through dynamical interactions. Moreover, 
-while most stars are thought to form in star clusters \citep{someone}, only the
-most massive or isolated star clusters are able to survive the star formation
-process \citep{someone2}. For this reason we rely on `field' stars -- that is,
-stars that are not clearly associated with a known star cluster -- in order to
-infer the formation of the Milky Way.
+space similarity can be quickly washed out through dynamical interactions. 
+Indeed, although most stars are thought to form in clusters \citep{someone},
+only the most massive or isolated star clusters are able to survive the star
+formation process \citep{someone2}, leaving most clusters to become 
+dynamically unbound after about 1~Gyr.
+
+% Some sentence about using a transformative number of field stars to unravel
+% the galaxy.
+% Chemical fingerprint.
+
+%The Milky Way is our best laboratory for understanding galaxy formation and
+%evolution. 
+Making strong inferences about the Milky Way's formation and evolution will
+require a transformative number of stars with precise chemical abundances.
+Wide-field multiplexed surveys are poised to deliver these data. 
+The APO Galactic Evolution Experiment \citep[\apogee, e.g.,][]{apogee} and the 
+Gaia-ESO survey \citep[\ges;][]{Gilmore_2012,Randich_2013} are already 
+delivering $10^5$ stars with 20--40 precise abundances, and the Galactic
+Archaeology with \hermes\ \citep[\galah;][]{DeSilva_2015} survey seeks to
+derive $\approx$30 precise abundances for $10^6$ stars.
+Future ground-based surveys will each derive abundances from $\approx$20
+million spectra \citep[e.g., \weave, \fourmost;][]{weave,4most} in each
+hemisphere, and the radial velocity spectrometer on \gaia\ can deliver a few
+abundances for $\approx$150 million stars.
+
+
+
+At this scale, chemical tagging represents a formidable parameter estimation
+and model selection problem.
+
+
+it represents a formidable parameter
+estimation and model selection problem.
+The scale of the problem is also uncertain.
+A \emph{transformative} sample of stars with precise chemical abundance
+measurements is presumably required to fully realise chemical tagging.
+What can be learned from $10^4$ field stars with infinitely precise chemical
+abundances? Can definitive inferences be made about the star formation history
+of the Milky Way? Will $10^5$ field stars allow us to inform the initial mass
+function? Are $10^6$ stars required before we can quantify the extent of
+radial mixing and galactic-scale dynamics?
+
+
+
+
+We explicitly list the components of the problem in detail before
+reviewing progress in the literature.
+
+Given a transformative sample of stars with precise chemical abundance
+measurements, the number of star clusters that represent the observed sample is
+unknown. 
+
+
+
+
+Progress to date has focussed on addressing individual aspects of this problem.
+
 
 
 Some progress has been made towards chemical tagging in simplistic experiments, 
@@ -112,7 +172,7 @@ what has been done with chemical tagging, we will outline the necessary
 components to perform chemical tagging.
 
 
-\subsection{The Problem: What's needed for chemical tagging?}
+\subsection{What's needed to chemically tag a galaxy?}
 \label{section:the-problem}
 
 Given a set of stars that have been observed spectroscopically, and detailed
@@ -167,6 +227,25 @@ trying to perform chemical tagging:
       between the abundance derived between the rare and more common elemental
       abundance.
 \end{enumerate}
+
+
+
+
+% Progress towards Chemical Tagging
+
+% - Mitschang for a euclidian distance in terms of seeing how different stars are
+
+% - Dimensionality of chemical abundance space
+
+% - Chemical homogeniety of clusters
+
+% - Simple clustering of abundances
+
+% - Dopplegangers
+
+% - 
+
+
 
 
 Previous approaches have tried to solve separate components of chemical tagging (e.g. clustering). Some notes on this.
@@ -415,9 +494,32 @@ repository.
 
 \begin{thebibliography}{}
 
-\bibitem[Astropy Collaboration et al.(2013)]{Robitaille:2013} Astropy Collaboration, Robitaille, T.~P., Tollerud, E.~J., et al.\ 2013, \aap, 558, A33 
+% Note: I include the DOI as a comment on the same line after every \bibitem
+%       entry. I do this in case I ever need to extract full bibstems for the
+%       bibliography, which can be done using this curl command and the DOI:
+
+%       curl -LH "Accept: application/x-bibtex" http://dx.doi.org/10.5555/12345678 
+
+%       If no DOI is available then I list the ADS identifier.
+
+\bibitem[Astropy Collaboration et al.(2013)]{Robitaille:2013} Astropy Collaboration, Robitaille, T.~P., Tollerud, E.~J., et al.\ 2013, \aap, 558, A33 % 10.1051/0004-6361/201322068
+
+\bibitem[Dalton et al.(2012)]{weave} Dalton, G., Trager, S.~C., Abrams, D.~C., et al.\ 2012, \procspie, 8446, 84460P % 10.1117/12.925950
+
+\bibitem[de Jong et al.(2012)]{4most} de Jong, R.~S., Bellido-Tirado, O., Chiappini, C., et al.\ 2012, \procspie, 8446, 84460T % 10.1117/12.926239
+
+\bibitem[De Silva et al.(2015)]{DeSilva_2015} De Silva, G.~M., Freeman, K.~C., Bland-Hawthorn, J., et al.\ 2015, \mnras, 449, 2604 % 10.1093/mnras/stv327
+
+\bibitem[Freeman \& Bland-Hawthorn(2002)]{Freeman_2002} Freeman, K., \& Bland-Hawthorn, J.\ 2002, \araa, 40, 487 % 10.1146/annurev.astro.40.060401.093840
+
+\bibitem[Gilmore et al.(2012)]{Gilmore_2012} Gilmore, G., Randich, S., Asplund, M., et al.\ 2012, The Messenger, 147, 25 % 2012Msngr.147...25G
+
+\bibitem[Majewski et al.(2015)]{apogee} Majewski, S.~R., Schiavon, R.~P., Frinchaboy, P.~M., et al.\ 2015, arXiv:1509.05420 % 2015arXiv150905420M
+
+\bibitem[Randich et al.(2013)]{Randich_2013} Randich, S., Gilmore, G., \& Gaia-ESO Consortium 2013, The Messenger, 154, 47 % 2013Msngr.154...47R
+
+\bibitem[Schafer (1997)]{Schafer_1997} Schafer, J.~L., 1997, Analysis of Incomplete Multivariate Data (CRC Press) % 10.1002/(SICI)1097-0258(20000415)19:7<1006::AID-SIM384>3.0.CO;2-T
 
 \end{thebibliography}
-
 
 \end{document}
