@@ -120,8 +120,6 @@ dynamically unbound after about 1~Gyr.
 
 
 
-
-
 %The Milky Way is our best laboratory for understanding galaxy formation and
 %evolution. 
 Making strong inferences about the Milky Way's formation and evolution from
@@ -147,7 +145,8 @@ formulate the scope of the analysis problem.
 
 
 \subsection{What do we want to infer from chemical abundances?}
-\label{section:the-problem}
+\label{sec:the-problem}
+
 
 Let us assume that a set of stars have been observed spectroscopically, and
 chemical abundances have been derived from those data.
@@ -156,6 +155,7 @@ abundances are unbiased, known with infinite precision, and complete (e.g., no
 missing abundances).
 Regardless of the number of stars observed or abundances derived, there are a
 number of inferences we seek to make:
+
 
 \begin{enumerate}
   \item The number of star clusters (or star-forming events) where at least 
@@ -212,6 +212,7 @@ number of inferences we seek to make:
         factors.
 \end{enumerate}
 
+
 The number of things we seek to infer from the available chemical abundances
 is vast.
 Indeed, even if we ignore the latent factors then a non-trivial model
@@ -236,105 +237,43 @@ selection problems with non-convex\footnote{
 \subsection{Chemical tagging progress to date}
 \label{sec:literature-review}
 
-There has been substantial progress on chemical tagging, despite its difficulty.
 
-% Most have opted to address individual components of what is listed above,
-% in idealistic situations.
+There has been substantial progress on chemical tagging in the last decade.
+Given the difficulty of the problem, most studies have opted to address one
+(or a few) of the challenges listed in Section~\ref{sec:the-problem}. 
+The most common issue addressed is group-finding (items 1-4). 
+Some works have sought to construct a similarity metric \citep{Mitschang}
+based on chemical abundances of undisrupted clusters. 
+Others have applied group-finding algorithms \citep{Hogg,Gregor}.
 
-% Progress towards Chemical Tagging
+- Dimensionality of chemical abundance space.
 
-% - Mitschang for a euclidian distance in terms of seeing how different stars are
+- Chemical homogeneity.
 
-% - Dimensionality of chemical abundance space
-
-% - Chemical homogeniety of clusters
-
-% - Simple clustering of abundances
-
-% - Dopplegangers
-
-% - 
+- Dopplegangers.
 
 
-
-
-\begin{comment}
-\subsection{Problems using real world data}
-
-There are a number of problems to consider when using real world data.
-
-\begin{enumerate}
-  \item There are missing data.
-        Given high-resolution spectra with signal-to-noise (S/N) ratios of
-        $\infinity$, there will be chemical abundances where only an upper
-        limit can be reported.
-        For example, if there are no transitions in the spectra, or the
-        chemical abundance is so low that there is no net absorption in the 
-        photosphere, then there will be no observable effect in the data.
-        Chemical tagging approaches must be able to accept `upper limits'\footnote{
-          The use of the term `\emph{upper limit}' amongst spectroscopists is
-          muddled. 
-          Frequently an `upper limit' is reported that represents (near-)zero
-          likelihood that the abundance could be above the quoted value.
-          Alternatively, a reported `upper limit' might describe a 
-          $\approx1\sigma$ (non-symmetric) limit estimated from the local
-          noise in the data.
-          Ideally a posterior distribution should to be provided.
-        }
-        reported by spectroscopists.
-  \item The abundance measurements may be biased.
-  \item If there are uncertainties provided for abundances, then those
-        uncertainties are likely to be underestimated.
-  \item The measurements will have heteroscedastic noise properties.
-        In other words, the abundance uncertainties will differ between
-        elements and stars.
-  \item The measurements of individual chemical abundances may be correlated
-        due to the way the abundance was measured.
-        For example, if there is a single absorption line present in the
-        spectrum for an element (e.g., \ion{O}{1}), and that absorption line
-        is blended with a comparably strong transition from another element
-        (e.g., \ion{Ni}{1}), then the measured abundances of \ion{O}{1} and
-        \ion{Ni}{2} will be (positively) correlated.
-        This correlation may be difficult to discern from an \emph{intrinsic}
-        correlation between the two elements.
-\end{enumerate}
-\end{comment}
-
-
-
-
-Previous approaches have tried to solve separate components of chemical tagging (e.g. clustering). Some notes on this.
-
-These approaches are not consistent, because the problems are intertwined (e.g., clustering, latent factors).
-
-
-% What work has been done on chemical tagging?
-
-% Unfortunately these approaches have only sought to solve individual problems
-% within chemical tagging. Doing so -- and then later using those results to
-% infer something else about the galaxy -- makes both results inconsistent,
-% both statistically, and otherwise.
-
-
-
-In Section \ref{sec:model} we introduce a simplistic approach to chemical
-tagging that relies on probabilistically modelling stellar chemical abundances
-as a mixture of (potentially infinite) multivariate Gaussian distributions.
-
+The aforementioned chemical tagging experiments have sought to address only 
+individual challenges associated with chemical tagging.
+These challenges are all related, and therefore addressing them separately
+will yield results that are not self-consistent, and do not make use of all
+the information available.
 
 
 In this \article\ we will introduce a simple probabilistic approach to
 chemical tagging, where the data are modelled as a mixture of multivariate
-Gaussian distributions (Section \ref{sec:the-model}). In Section \ref{sec:mml}
-we introduce the principle of minimum message length (MML), and formulate our
-objective function by minimising the total message length. Our model is
-simplistic in the sense that we will ignore many of the self-consistency
-issues already introduced. However, in Section \ref{sec:experiments} we show
-that our MML-based approach is superior to all other methods considered for
-chemical tagging, all of which cannot alleviate the self-consistency issues.
-In Section \ref{sec:discussion} we will describe how MML can overcome these
-aforementioned issues, in order to construct a fully-consistent probabilistic
-approach to chemical tagging.
+Gaussian distributions and the number of mixtures is unknown (Section 
+\ref{sec:the-model}). 
+In Section \ref{sec:mml} we introduce the principle of minimum message length
+(MML) and formulate our objective function.
+Although our model is simplistic in the sense that we will only address some
+aspects of chemical tagging, in Section \ref{sec:experiments} our experiments
+show that our MML-based approach is superior to all other methods considered 
+for chemical tagging.
+In Section \ref{sec:discussion} we describe how the MML principle can be used
+to construct a fully consistent probabilistic approach to chemical tagging,
+and simultaneously address the challenges outlined in Section 
+\ref{sec:the-problem}.
 
 
 
@@ -578,3 +517,50 @@ repository.
 \end{thebibliography}
 
 \end{document}
+
+
+
+
+
+
+\begin{comment}
+\subsection{Problems using real world data}
+
+There are a number of problems to consider when using real world data.
+
+\begin{enumerate}
+  \item There are missing data.
+        Given high-resolution spectra with signal-to-noise (S/N) ratios of
+        $\infinity$, there will be chemical abundances where only an upper
+        limit can be reported.
+        For example, if there are no transitions in the spectra, or the
+        chemical abundance is so low that there is no net absorption in the 
+        photosphere, then there will be no observable effect in the data.
+        Chemical tagging approaches must be able to accept `upper limits'\footnote{
+          The use of the term `\emph{upper limit}' amongst spectroscopists is
+          muddled. 
+          Frequently an `upper limit' is reported that represents (near-)zero
+          likelihood that the abundance could be above the quoted value.
+          Alternatively, a reported `upper limit' might describe a 
+          $\approx1\sigma$ (non-symmetric) limit estimated from the local
+          noise in the data.
+          Ideally a posterior distribution should to be provided.
+        }
+        reported by spectroscopists.
+  \item The abundance measurements may be biased.
+  \item If there are uncertainties provided for abundances, then those
+        uncertainties are likely to be underestimated.
+  \item The measurements will have heteroscedastic noise properties.
+        In other words, the abundance uncertainties will differ between
+        elements and stars.
+  \item The measurements of individual chemical abundances may be correlated
+        due to the way the abundance was measured.
+        For example, if there is a single absorption line present in the
+        spectrum for an element (e.g., \ion{O}{1}), and that absorption line
+        is blended with a comparably strong transition from another element
+        (e.g., \ion{Ni}{1}), then the measured abundances of \ion{O}{1} and
+        \ion{Ni}{2} will be (positively) correlated.
+        This correlation may be difficult to discern from an \emph{intrinsic}
+        correlation between the two elements.
+\end{enumerate}
+\end{comment}
