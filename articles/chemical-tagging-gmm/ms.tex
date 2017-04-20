@@ -273,17 +273,16 @@ the information available.
 
 In this \article\ we will introduce a simple probabilistic approach to
 chemical tagging, where the data are modelled as a mixture of multivariate
-Gaussian distributions and the number of mixtures is unknown (Section 
-\ref{sec:the-model}). 
-In Section \ref{sec:mml} we introduce the principle of minimum message length
-(MML) and formulate our objective function.
+Gaussian distributions and the number of mixtures is unknown.
+In Section \ref{sec:the-model} we describe our model and outline our objective
+function.
 Although our model is simplistic in the sense that we will only address some
 aspects of chemical tagging, in Section \ref{sec:experiments} our experiments
-show that our MML-based approach is superior to all other methods considered 
+show that our approach is superior to all other methods considered 
 for chemical tagging.
-In Section \ref{sec:discussion} we describe how the MML principle can be used
-to construct a fully consistent probabilistic approach to chemical tagging,
-and simultaneously address the challenges outlined in Section 
+In Section \ref{sec:discussion} we describe how the principles introduced here
+can be used to construct a fully consistent probabilistic approach to chemical
+tagging, and simultaneously address the challenges outlined in Section 
 \ref{sec:the-problem}.
 
 
@@ -362,12 +361,101 @@ and parameter estimates of $\vectheta$ in Section \ref{sec:fitting-the-data}.
 \subsection{Minimum Message Length}
 \label{sec:mml}
 
+The Minimum Message Length \citep[MML;][]{Wallace_1968} principle is a formal
+description of Occam's razor that is based on information theory.
+The MML principle states that the best explanation of the data is the model
+that describes the data using the smallest amount of information (shortest
+message).
+Information is described with the same description as \citet{Shannon_1948},
+who showed that that given an event $E$ with probability $P(E)$, the length of 
+the shortest lossless code $I(E)$ to represent that event requires 
+$I(E) = -\log_{2}P(E)$ bits of information\footnote{
+  Unless specified -- as it is in this instance -- throughout this article we 
+  will refer to the information $I$ or entropy in natural units (nats). 
+  Recall that 1 bit $= \log{2}$ nats.
+  }.
+\citet{Wallace_1968} linked this result with Bayes' theorem, 
 
-Background to MML, etc.
+\begin{equation}
+  P(H|D) = \frac{P(H)\cdot{}P(D|H)}{P(D)}
+\end{equation}
 
-We want to minimize the message length.
+\noindent{}which states that the joint probability of the data $D$ and 
+hypothesis $H$, $P(H, D)$, is given by
 
-Link to Bayesian evidence, other things, etc.
+\begin{equation}
+  P(H, D) = P(H) \cdot P(D|H) = P(D) \cdot P(H|D)
+\end{equation}
+
+\noindent{}where $P(H)$ is the prior probability of the hypothesis $H$,
+$P(D|H)$ is the likelihood, $P(D)$ is the prior probability of the data $D$,
+and $P(H|D)$ is the posterior probability of the hypothesis given the data.
+Specifically, \citet{Wallace_1968} derived the relationship between
+conditional probabilities in terms of optimal message lengths,
+
+\begin{equation}
+  I(H, D) = I(H) + I(D|H) = I(D) + I(H|D) \quad .
+  \label{eq:mml-wallace}
+\end{equation}
+
+Therefore the total cost of a message is the sum of the message length of the
+hypothesis $H$, which takes $I(H)$ bits, and the data $D$ given the hypothesis
+$H$, $I(D|H)$. 
+Considering a simple problem of model selection provides good intuition for
+this two-part message approach. 
+Consider a simple model $H_0$ where the first part of the message $I(H_0)$ is 
+short, and which provides a poor fit to the data such that $I(D|H_0)$ is long.
+An alternative model $H_1$ is more complex, requiring a longer $I(H_1)$, but
+the increased model flexibility provides a better fit to the data, making
+$I(D|H_1)$ short.
+For both parameter estimation \emph{and} model selection, we want to chose
+$H$ (of $H_0$, $H_1$, etc) and the model parameters that minimizes the
+\emph{total} message length.
+
+
+
+Calculating the length of the message is a non-trivial task, especially if the
+model is even reasonably complex.
+This makes the MML principle intractable (or uncomputable) in most cases, and
+forces us to make approximations when calculating the message length.
+\citet{Wallace_Freeman_1987} introduce a generalised scheme to estimate a
+vector of parameters $\vectheta$ of any distribution given some data, where
+the estimates $\vectheta$ that minimise the message length expression,
+
+\begin{equation}
+  I(\vectheta,\data) 
+    = \frac{p}{2}\log{q_p} - \log{\left(\frac{h(\vectheta)}{\sqrt{|\mathcal{F}(\vectheta)|}}\right)}
+      - \mathcal{L}\left(\data|\vectheta\right) + \frac{p}{2}
+\end{equation}
+
+
+\noindent{}is the MML estimate.
+Here $h(\vectheta)$ is the prior on the hypothesis, $p$ is the number of free
+parameters in the model, and $|\mathcal{F}\left(\vectheta\right)|$ is the
+determinant of the \emph{expected} Fisher information matrix (the second-order
+partial derivatives of the negative log-likelihood function $-\mathcal{L}(\data|\vectheta)$.
+
+
+
+The message length for a model includes the length (in bits of entropy)
+required to transmit the model parameters, and the length required to transmit
+the residuals of the data given the model.
+There is a wealth of literature on the successes (and derivatives) of MML
+in the fields of medicine, statistics, etc.
+
+- Deep grounds in statistics, etc.
+
+
+The MML principle requires that the prior beliefs of the model to be fully 
+specified as part of the message. 
+This requirement provides a familiar link to Bayesian statistics, and allows
+one to think of MML as a form of a Bayesian optimization problem that is 
+deeply grounded in information theory.
+Unfortunately, strict MML is generally intractable, and therefore we require
+an app
+
+
+
 
 In order to minimize the full message length, we must specify the priors on
 our parameters.
@@ -525,7 +613,11 @@ repository.
 
 \bibitem[Randich et al.(2013)]{Randich_2013} Randich, S., Gilmore, G., \& Gaia-ESO Consortium 2013, The Messenger, 154, 47 % 2013Msngr.154...47R
 
-\bibitem[Schafer (1997)]{Schafer_1997} Schafer, J.~L., 1997, Analysis of Incomplete Multivariate Data (CRC Press) % 10.1002/(SICI)1097-0258(20000415)19:7<1006::AID-SIM384>3.0.CO;2-T
+\bibitem[Shannon (1948)]{Shannon_1948} Shannon, C.~E.\ 1948, Bell System Technical Journal, 27, 3 % 10.1002/j.1538-7305.1948.tb01338.x
+
+\bibitem[Schafer (1997)]{Schafer_1997} Schafer, J.~L.\ 1997, Analysis of Incomplete Multivariate Data (CRC Press) % 10.1002/(SICI)1097-0258(20000415)19:7<1006::AID-SIM384>3.0.CO;2-T
+
+\bibitem[Wallace \& Boulton (1968)]{Wallace_1968} Wallace, C.~S. \& Boulton, D.~M.\ 1968, The Computer Journal, 11, 2 %10.1093/comjnl/11.2.185
 
 \end{thebibliography}
 
