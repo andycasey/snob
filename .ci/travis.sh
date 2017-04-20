@@ -3,6 +3,8 @@
 # Build the paper(s)
 cd articles/chemical-tagging-gmm
 make
+cd articles/nips-2017
+make
 
 # Push to GitHub
 if [ -n "$GITHUB_API_KEY" ]; then

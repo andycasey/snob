@@ -11,6 +11,7 @@ articles/*/*.log
 articles/*/*.pdf
 articles/*/vc.tex
 articles/*/*.bib
+articles/*/*.out
 
 docs/build/
 
