@@ -4,6 +4,7 @@
 \documentclass{aastex61}
 
 \usepackage{bm}
+%\usepackage{boldsymbol}
 \usepackage{verbatim} % for \begin{comment}'ing out sections.
 
 % For revision history
@@ -26,11 +27,20 @@
 \newcommand{\gaia}{\project{Gaia}}
 
 % Common terms
+\newcommand{\vect}[1]{\boldsymbol{\mathbf{#1}}}
+
 \def\teff{T_{\rm eff}}
 \def\logg{\log{g}}
 
 % Have some maaaath.
 \def\infinity{\rotatebox{90}{8}}
+\def\veccov{\vect{C}}
+\def\vecmean{\vect{\mu}}
+\def\vectheta{\vect{\theta}}
+\def\weight{w}
+\def\weights{\vect{\weight}}
+\def\datum{y}
+\def\data{\vect{\datum}}
 
 % Affiliation(s)
 \newcommand{\moca}{
@@ -246,6 +256,7 @@ Some works have sought to construct a similarity metric \citep{Mitschang}
 based on chemical abundances of undisrupted clusters. 
 Others have applied group-finding algorithms \citep{Hogg,Gregor}.
 
+% TODO
 - Dimensionality of chemical abundance space.
 
 - Chemical homogeneity.
@@ -276,79 +287,81 @@ and simultaneously address the challenges outlined in Section
 \ref{sec:the-problem}.
 
 
-
 \section{The Model}
 \label{sec:the-model}
+
 
 We make the following explicit assumptions:
 
 \begin{itemize}
-\item We assume that the data (e.g., the $D$ detailed chemical abundances of 
-      $N$ stars) can be represented by a mixture of $K$ multivariate Gaussian
-      distributions.
-\item We assume that there are no missing data values. For example, if a star
-      has been observed, then there is a complete set of $D$ chemical 
-      abundances available.
-\item We will assume that the number of \emph{true} multivariate Gaussian
-      distributions $K_{true}$ is not known. This assumption applies to our 
-      experiements involving generated data, and those using real data.
-\item In addition to not knowing the \emph{number} of multivariate normal
-      distributions, we further assume that the means $\bm{\mu}$ and 
-      covariance matrices $\bm{C}$ of each $K$th mixture is unknown.
-\item We assume that the covariance matrix of individual components can be
-      described as `free' or `full', insomuch that the data within a cluster
-      can have off-diagonal correlation terms, and those terms are unknown.
-\item In all experiments we will assume that the data have homoskedastic noise
-      properties.
-\item The relative weights $\bm{w}$ (or mixing proportions) of $K$ 
-      distributions is unknown. 
-\item We assume a relative (or conditional) probability distribution for each 
-      star belonging to a given cluster. That is to say that we do not adopt a 
-      `\emph{hard selection}' approach to cluster modelling, where stars would
-      be assigned as definitively belonging to one cluster or another. Our
-      approach could be described as `\emph{soft} clustering'. This assumption
-      has practical numerical outcomes and implications for the message length.
+  \item We assume that the data (e.g., $D$ detailed chemical abundances for
+        $N$ stars) can be represented by a mixture of $K$ multivariate 
+        Gaussian distributions.
+  \item We assume that there are no missing data values. 
+        For example, if a star has been observed, then there is a complete set
+        of $D$ chemical abundances available.
+  \item We will assume that the number of \emph{true} multivariate Gaussian
+        distributions $K_{true}$ is not known. 
+        This assumption applies to our experiements involving generated data, 
+        and those using real data.
+  \item In addition to not knowing the \emph{number} of multivariate normal
+        distributions, we further assume that the means $\vecmean$ and 
+        covariance matrices $\veccov$ of each $K$-th mixture is unknown.
+  \item We assume that the covariance matrix of individual components can be
+        described as `free' or `full', insomuch that the data within a cluster
+        can have off-diagonal correlation terms, and those terms are unknown.
+  \item In all experiments we will assume that the data have homoskedastic 
+        noise properties.
+  \item The relative weights $\weights$ (or mixing proportions) of the $K$ 
+        distributions is unknown. 
+  \item We assume a relative (or conditional) probability distribution for 
+        each star belonging to a given cluster. That is to say that we do not 
+        adopt a `\emph{hard selection}' approach to cluster modelling, where 
+        stars would be assigned as definitively belonging to one cluster or 
+        another. 
+        Our approach could be described as `\emph{soft} clustering'.
+        This assumption has practical implications for optimization, and for
+        the total message length.
 \end{itemize}
 
-We have made relatively few explicit assumptions about the model for the data,
-but even the model described constitutes a very formidable model selection 
-problem. This is because we do not know \emph{how many} multivariate Gaussian
-distributions we ought to chose to fit the data. Including more mixtures will
-consistently provide a better fit to the data (in a likelihood sense), but we 
-must make some decision or heuristic as to whether the additional mixture is 
-justified.
 
-The probability density function $f$ for a multivariate normal distribution 
-with $d$ dimensions is given by
+\noindent{}The probability density function $p$ for a multivariate normal 
+distribution with $D$ dimensions is given by
 
 \begin{equation}
-    f(\bm{y}|\bm{\mu},\bm{\Sigma}) 
-        = \frac{1}{\sqrt{(2\pi)^d|\bm{\Sigma}|}}
-          \exp{\left[-\frac{1}{2}(\bm{y} - \bm{\mu})^\intercal\bm{\Sigma}^{-1}(\bm{y} - \bm{\mu})\right]}
+  p(\data|\vecmean,\veccov) 
+      = \frac{1}{\sqrt{(2\pi)^d|\veccov|}}
+        \exp{\left[-\frac{1}{2}(\data - \vecmean)^\intercal\veccov^{-1}(\data - \vecmean)\right]}
 \end{equation}
 
-\noindent{}where $\bm{\mu}$ and $\bm{\Sigma}$ is the multivariate mean and 
-covariance matrix, and $\bm{y}$ are the data.  
-
-% Full probability for the data.
-
-
-When modelling a mixture of
-Gaussians, there are two approaches in determining assignments (or
-responsibilities) of each star to a given cluster. One approach is to include
-a (discrete) model parameter for every data point, which represents the index
-of the mixture that the observation is assigned to. The second approach is to 
-use a weighted mixture. These two are mathematically identical.
-% TODO
-
+\noindent{}where $\vecmean$ and $\veccov$ is the multivariate mean and 
+covariance matrix, and $\data$ are the data.
+For a fixed number of $K$ multivariate Gaussian mixtures, the probability
+density function can be written as
 
 \begin{equation}
-% TODO
+  p(\data|\vectheta) = \sum_{k=1}^{K} \weight_k \, p(\data|\vectheta_k)
 \end{equation}
+
+\noindent{}where $\vectheta_k \equiv \{\vecmean_k, \veccov_k\}$,
+$\vectheta \equiv \{\vectheta_1,\dots,\vectheta_K,\weight_1,\dots,\weight_K\}$, and
+$\weight_k$ is the relative weight (or the mixing probability) of the $k$-th 
+mixture,\footnote{
+  An alternative representation would be to include integer variables for each
+  of the $N$ stars, where each variable represents the cluster which that star
+  belongs.
+  These two models are mathematically identical \citep{Foreman_Mackey_2014},
+  but the integer representation is highly dimensional and difficult to
+  optimize.}
+and we require that $\sum_{k=1}^{K} \weight_k = 1$.
+Although the true number of $K$ mixtures is unknown (as are the means $\vecmean$
+and covariance matrices $\veccov$), we will address the selection of $K$
+and parameter estimates of $\vectheta$ in Section \ref{sec:fitting-the-data}.
 
 
 \subsection{Minimum Message Length}
 \label{sec:mml}
+
 
 Background to MML, etc.
 
