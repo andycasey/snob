@@ -4,6 +4,7 @@
 \documentclass{aastex61}
 
 \usepackage{bm}
+\usepackage{verbatim} % for \begin{comment}'ing out sections.
 
 % For revision history
 \IfFileExists{vc.tex}{\input{vc.tex}}{
@@ -23,6 +24,10 @@
 \newcommand{\fourmost}{\acronym{4MOST}}
 \newcommand{\weave}{\acronym{WEAVE}}
 \newcommand{\gaia}{\project{Gaia}}
+
+% Common terms
+\def\teff{T_{\rm eff}}
+\def\logg{\log{g}}
 
 % Have some maaaath.
 \def\infinity{\rotatebox{90}{8}}
@@ -109,127 +114,132 @@ space similarity can be quickly washed out through dynamical interactions.
 Indeed, although most stars are thought to form in clusters \citep{someone},
 only the most massive or isolated star clusters are able to survive the star
 formation process \citep{someone2}, leaving most clusters to become 
-dynamically unbound after about 1~Gyr.
+dynamically unbound after about 1~Gyr. 
 
-% Some sentence about using a transformative number of field stars to unravel
-% the galaxy.
-% Chemical fingerprint.
+%Their signature of formation is locked up in their detailed chemical fingerprint
+
+
+
+
 
 %The Milky Way is our best laboratory for understanding galaxy formation and
 %evolution. 
-Making strong inferences about the Milky Way's formation and evolution will
-require a transformative number of stars with precise chemical abundances.
-Wide-field multiplexed surveys are poised to deliver these data. 
-The APO Galactic Evolution Experiment \citep[\apogee, e.g.,][]{apogee} and the 
-Gaia-ESO survey \citep[\ges;][]{Gilmore_2012,Randich_2013} are already 
-delivering $10^5$ stars with 20--40 precise abundances, and the Galactic
-Archaeology with \hermes\ \citep[\galah;][]{DeSilva_2015} survey seeks to
-derive $\approx$30 precise abundances for $10^6$ stars.
-Future ground-based surveys will each derive abundances from $\approx$20
-million spectra \citep[e.g., \weave, \fourmost;][]{weave,4most} in each
-hemisphere, and the radial velocity spectrometer on \gaia\ can deliver a few
-abundances for $\approx$150 million stars.
+Making strong inferences about the Milky Way's formation and evolution from
+chemical tagging will require a transformative number of stars with precise
+abundances.
+Ground- and space-based surveys are poised to deliver those data this decade. 
+The Apache Point Observatory Galactic Evolution Experiment 
+\citep[\apogee, e.g.,][]{apogee} and the Gaia-ESO survey 
+\citep[\ges;][]{Gilmore_2012,Randich_2013} are already delivering $10^5$ stars 
+with 20--40 precise abundances, and the Galactic Archaeology with \hermes\ 
+\citep[\galah;][]{DeSilva_2015} survey seeks to derive $\approx$30 precise 
+abundances for $\sim10^6$ stars. 
+Future ground-based surveys will derive abundances from $\approx$20 million 
+spectra in each hemisphere \citep[e.g., \weave, \fourmost;][]{weave,4most},
+and the radial velocity spectrometer on \gaia\ can deliver a few abundances 
+for $\approx$150 million stars.
 
 
-
-At this scale, chemical tagging represents a formidable parameter estimation
-and model selection problem.
-
-
-it represents a formidable parameter
-estimation and model selection problem.
-The scale of the problem is also uncertain.
-A \emph{transformative} sample of stars with precise chemical abundance
-measurements is presumably required to fully realise chemical tagging.
-What can be learned from $10^4$ field stars with infinitely precise chemical
-abundances? Can definitive inferences be made about the star formation history
-of the Milky Way? Will $10^5$ field stars allow us to inform the initial mass
-function? Are $10^6$ stars required before we can quantify the extent of
-radial mixing and galactic-scale dynamics?
+Chemical tagging is a simple idea, but with this volume of data it represents
+a formidable parameter estimation and model selection problem.
+Before reviewing the literature on chemical tagging, here we explicitly
+formulate the scope of the analysis problem.
 
 
-
-
-We explicitly list the components of the problem in detail before
-reviewing progress in the literature.
-
-Given a transformative sample of stars with precise chemical abundance
-measurements, the number of star clusters that represent the observed sample is
-unknown. 
-
-
-
-
-Progress to date has focussed on addressing individual aspects of this problem.
-
-
-
-Some progress has been made towards chemical tagging in simplistic experiments, 
-but the full extent of chemical tagging has yet to be realised. Indeed, in this 
-\article\ we assert that even \emph{the full extent of the problem} of chemical 
-tagging has yet to be realised. Before reviewing the existing literature on
-what has been done with chemical tagging, we will outline the necessary
-components to perform chemical tagging.
-
-
-\subsection{What's needed to chemically tag a galaxy?}
+\subsection{What do we want to infer from chemical abundances?}
 \label{section:the-problem}
 
-Given a set of stars that have been observed spectroscopically, and detailed
-chemical abundances have been derived, the following issues will arise when
-trying to perform chemical tagging:
+Let us assume that a set of stars have been observed spectroscopically, and
+chemical abundances have been derived from those data.
+We will unrealistically assume that the data are noiseless, and the derived
+abundances are unbiased, known with infinite precision, and complete (e.g., no 
+missing abundances).
+Regardless of the number of stars observed or abundances derived, there are a
+number of inferences we seek to make:
 
 \begin{enumerate}
-\item The number of star clusters (or star-forming events) where at least one
-      star was observed and detailed chemical abundances were derived.
-\item The number of latent factors (e.g., supernovae yields, AGB yields).
-      Within the chemical tagging literature, this is commonly referred to as
-      the number of `effective chemical dimensions'.
-\item The multivariate factor loads of individual latent factors. For example,
-      if core-collapse supernovae and AGB stars had both contributed to the
-      chemical abundances of all stars in the sample, then the
-      \emph{factor loads} would be the \emph{yield} of the supernovae, or the
-      yield of relative abundances that were produced by the AGB star. Each
-      star will be affected differently by these yields (see next item).
-\item The relative \emph{scoring} of different latent factors on each star.
-      This is a scaling that is applied to the latent yields. Continuing our
-      analogy on yields from core-collapse supernovae and AGB stars, the
-      \emph{factor scores} can be thought of as the relative contributions of
-      the different factor loads, for a single star.
-\item The relative weighting (yet another latent factor, which is however not
-      common between all mixtures) of individual mixtures.
-\item The multivariate mean abundances and covariance matrices of each star
-      cluster, where the covariance matrix includes off-diagonal terms that
-      describe the \emph{data} correlations (e.g., the correlations that result
-      from trying to measure multiple abundances from the same data).
-\item The intrinsic \emph{specific variances} of the individual abundances.
-\item Atomic diffusion, veiling, and thermohaline mixing: The surface chemical
-      abundances of stars \emph{will change} over its lifetime.
-\item Probabilistic priors (perhaps very hard priors) on joint responsibilities
-      of stars that are specified from astrometric constraints.
-\item There are missing data. 
-\item There are \emph{upper limits} on some data.\footnote{
-        Spectroscopists are probably the worst in the Universe when it comes to
-        reporting upper limits. They will report an `\emph{upper limit}', when
-        what might mean is the \emph{absolute limit} where there is zero
-        likelihood that the true value is above the given point estimate (which might as well be $+\infinity$, or
-        they may describe a \emph{pseudo-1$\sigma$} limit which is estimated
-        from the locally (yet covariant!) heteroskedastic noise in the data (which often might as well be $\approx$0).
-        In reality, an upper limit ought to be given as a probability density
-        function that is skewed in one direction, perhaps similar to the shape
-        of a log-normal distribution. In any case, the confidence to which they
-        describe their `\emph{upper limit}' ought to be given.}
-\item There are correlations in the measurements that result from trying to
-      measure two (or more) abundances from the same data. As an example,
-      consider a rare -- yet important -- chemical abundance that has a single
-      atomic absorption line which is blended with a more common elemental
-      abundance. In all likelihood, there will be a strong positive correlation
-      between the abundance derived between the rare and more common elemental
-      abundance.
+  \item The number of star clusters (or star-forming events) where at least 
+        one star was observed and chemical abundances were derived.
+  \item The conditional probabilities (or memberships) of each star belonging
+        to every star cluster or star-forming event.
+        Alternatively, the relative weighting of individual mixtures.
+  \item The mean abundances of each star cluster. 
+  \item The covariance matrix of abundances of each star cluster.
+        This covariance matrix includes the intrinsic (cluster) variance
+        of individual abundances (e.g., the homogeniety), and allows for
+        correlations between abundances.\footnote{
+          It is likely -- or hoped -- that \emph{true} correlations between 
+          abundances will be accounted for through the latent factors, and any 
+          remaining correlations are the result of the measurements.}
+  \item The \emph{number} of common multivariate latent factors, variables 
+        that are not observable but affect all or many of the observations.
+        In the context of chemical tagging, the yields of core-collapse
+        supernovae can be considered a common multivariate latent factor: 
+        those yields are not directly observable, but they contribute to much 
+        of the data.
+        Here we are interested in the \emph{number} of common multivariate
+        latent factors. For example, the number of sources of enrichment:
+        different classes of supernovae, asymptotic giant branch (AGB) stars, 
+        etc.
+  \item The multivariate factor loads of individual latent factors. 
+        For example, if core-collapse supernovae and AGB stars had both 
+        contributed to the chemical abundances of all stars in the sample, 
+        then the \emph{factor loads} would be the \emph{yield} of the 
+        supernovae, or the yield of relative abundances that were produced by 
+        the AGB star. 
+        Each star will be affected differently by those yields (see item 7).
+  \item The relative \emph{scoring} of different latent factors on each star.
+        This is a scaling that is applied to the latent yields. Continuing our
+        analogy on yields from core-collapse supernovae and AGB stars, the
+        \emph{factor scores} can be thought of as the relative contributions 
+        of the different factor loads, for a single star.
+  \item The intrinsic \emph{specific variances} of the individual abundances.
+        These variances can be thought of as the intrinsic variability from 
+        the different factor loads.
+        The intrisic variances affect all observations, before accounting for
+        any homogeneity in individual clusters.
+  \item The \emph{number} of stellar age- or parameter-dependent latent 
+        factors that affect the data. 
+        The surface chemical abundances of stars \emph{do change} over its
+        lifetime, at least in part due to atomic diffusion, veiling, and 
+        thermohaling mixing.
+        Understanding and modelling these effects will be critical for 
+        chemical tagging stars across all stellar ages and evolutionary states.
+  \item The factor loads of stellar age- or parameter-dependent latent factors.
+        In this example, a single multivariate factor load may represent the
+        age-dependent effects of atomic diffusion.
+  \item The factor scores of stellar age- or parameter-dependent latent 
+        factors.
 \end{enumerate}
 
+The number of things we seek to infer from the available chemical abundances
+is vast.
+Indeed, even if we ignore the latent factors then a non-trivial model
+selection problem remains: What is the number of star clusters or star-forming 
+events?
+In the full description of chemical tagging we seek to know (1) the number of
+star clusters, (2) the number of latent factors, and (3) the number of age-
+or stellar parameter-dependent factors.
+Going further, if we wanted to improve the accuracy and precision of our
+solution then we may seek to include joint priors on the memberships of stars
+being associated with specific clusters, either based on their ages or
+astrometry.
+In summary, simplified versions of chemical tagging represent formidable model
+selection problems with non-convex\footnote{
+  If a problem is convex then any local solution is mathematically guaranteed
+  to be the global solution.
+  If the problem is non-convex, then a local solution may not be the global
+  solution.
+} objective functions.
 
 
+\subsection{Chemical tagging progress to date}
+\label{sec:literature-review}
+
+There has been substantial progress on chemical tagging, despite its difficulty.
+
+% Most have opted to address individual components of what is listed above,
+% in idealistic situations.
 
 % Progress towards Chemical Tagging
 
@@ -244,6 +254,51 @@ trying to perform chemical tagging:
 % - Dopplegangers
 
 % - 
+
+
+
+
+\begin{comment}
+\subsection{Problems using real world data}
+
+There are a number of problems to consider when using real world data.
+
+\begin{enumerate}
+  \item There are missing data.
+        Given high-resolution spectra with signal-to-noise (S/N) ratios of
+        $\infinity$, there will be chemical abundances where only an upper
+        limit can be reported.
+        For example, if there are no transitions in the spectra, or the
+        chemical abundance is so low that there is no net absorption in the 
+        photosphere, then there will be no observable effect in the data.
+        Chemical tagging approaches must be able to accept `upper limits'\footnote{
+          The use of the term `\emph{upper limit}' amongst spectroscopists is
+          muddled. 
+          Frequently an `upper limit' is reported that represents (near-)zero
+          likelihood that the abundance could be above the quoted value.
+          Alternatively, a reported `upper limit' might describe a 
+          $\approx1\sigma$ (non-symmetric) limit estimated from the local
+          noise in the data.
+          Ideally a posterior distribution should to be provided.
+        }
+        reported by spectroscopists.
+  \item The abundance measurements may be biased.
+  \item If there are uncertainties provided for abundances, then those
+        uncertainties are likely to be underestimated.
+  \item The measurements will have heteroscedastic noise properties.
+        In other words, the abundance uncertainties will differ between
+        elements and stars.
+  \item The measurements of individual chemical abundances may be correlated
+        due to the way the abundance was measured.
+        For example, if there is a single absorption line present in the
+        spectrum for an element (e.g., \ion{O}{1}), and that absorption line
+        is blended with a comparably strong transition from another element
+        (e.g., \ion{Ni}{1}), then the measured abundances of \ion{O}{1} and
+        \ion{Ni}{2} will be (positively) correlated.
+        This correlation may be difficult to discern from an \emph{intrinsic}
+        correlation between the two elements.
+\end{enumerate}
+\end{comment}
 
 
 
