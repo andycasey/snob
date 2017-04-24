@@ -117,8 +117,13 @@ class GaussianMixture(object):
             covariance_regularization=covariance_regularization,
             callback=callback)
 
-        # Initialize as a one-component mixture.
-        mu, cov, weight = _initialize(y, callback=callback)
+        # Do we have an initialization keyword?
+        if kwargs.get("__initialize", None) is not None:
+            mu, cov, weight = kwargs.pop("__initialize")
+
+        else:
+            # Initialize as a one-component mixture.
+            mu, cov, weight = _initialize(y, callback=callback)
 
         iterations = 1
         N_cp = _parameters_per_component(D, self.covariance_type)
@@ -183,7 +188,8 @@ class GaussianMixture(object):
                 break
 
         # TODO: a full_output response.
-        return (mu, cov, weight)
+        meta = dict(message_length=mindl)
+        return (mu, cov, weight, meta)
         
     fit = _fit_kasarapu_allison
 
@@ -597,6 +603,7 @@ def _compute_cholesky_decomposition(covariances, covariance_type):
                 cholesky_cov = scipy.linalg.cholesky(covariance, lower=True) 
             except scipy.linalg.LinAlgError:
                 raise ValueError(singular_matrix_error)
+
 
             cholesky_decomposition[m] = scipy.linalg.solve_triangular(
                 cholesky_cov, np.eye(D), lower=True).T
