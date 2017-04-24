@@ -20,6 +20,8 @@ from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_COVARIANCE_TYPE = "diag"
+
 class GaussianMixture(object):
 
     r"""
@@ -45,20 +47,20 @@ class GaussianMixture(object):
 
     parameter_names = ("mean", "cov", "weight")
 
-    def __init__(self, y, covariance_type="free", **kwargs):
+    def __init__(self, y, covariance_type=_DEFAULT_COVARIANCE_TYPE, **kwargs):
 
         y = np.atleast_2d(y)
         if 1 > y.size:
             raise ValueError("no data!")
         
-        available = ("free", "diag", "tied", "tied_diag")
+        available = ("full", "diag", "tied", "tied_diag")
         covariance_type = covariance_type.strip().lower()
         if covariance_type not in available:
             raise ValueError("covariance type '{}' is invalid. "\
                              "Must be one of: {}".format(
                                 covariance_type, ", ".join(available)))
 
-        if covariance_type not in ("free", "tied"):
+        if covariance_type not in ("full", "diag"):
             raise NotImplementedError("don't get your hopes up")
 
         self._y = y
@@ -266,8 +268,8 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
     assert np.all(np.isfinite(log_likelihood))
     """
 
-    precision_cholesky = _compute_cholesky_decomposition(cov, "full")
-    weighted_log_prob = _estimate_log_gaussian_prob(y, mu, precision_cholesky, "full") \
+    precision_cholesky = _compute_cholesky_decomposition(cov, _DEFAULT_COVARIANCE_TYPE)
+    weighted_log_prob = _estimate_log_gaussian_prob(y, mu, precision_cholesky, _DEFAULT_COVARIANCE_TYPE) \
                       + np.log(weight)
     log_prob_norm = scipy.misc.logsumexp(weighted_log_prob, axis=1)
     with np.errstate(under="ignore"):
@@ -360,7 +362,7 @@ def _parameters_per_component(D, covariance_type):
         mean and covariance matrix of :math:`D` Gaussian distributions.
     """
 
-    if covariance_type == "free":
+    if covariance_type == "full":
         return int(D + D*(D + 1)/2.0)
     elif covariance_type == "diag":
         return 2 * D
@@ -523,7 +525,7 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
     # TODO: bother about including this? -N * D * np.log(eps)
     
 
-    N_cp = _parameters_per_component(D, "free")
+    N_cp = _parameters_per_component(D, _DEFAULT_COVARIANCE_TYPE)
     part2 = -np.sum(log_likelihood) + N_cp/(2*np.log(2))
 
     AOM = 0.001 # MAGIC
@@ -608,6 +610,10 @@ def _compute_cholesky_decomposition(covariances, covariance_type):
             cholesky_decomposition[m] = scipy.linalg.solve_triangular(
                 cholesky_cov, np.eye(D), lower=True).T
 
+    elif covariance_type in "diag":
+        cholesky_decomposition = 1.0 / np.sqrt(covariances)
+        raise a
+
     else:
         raise NotImplementedError("nope")
 
@@ -658,12 +664,17 @@ def _estimate_log_gaussian_prob(X, means, precision_cholesky, covariance_type):
     log_det = _compute_log_det_cholesky(
         precision_cholesky, covariance_type, n_features)
 
-    if covariance_type == 'full':
+    if covariance_type in 'full':
         log_prob = np.empty((n_samples, n_components))
         for k, (mu, prec_chol) in enumerate(zip(means, precision_cholesky)):
             y = np.dot(X, prec_chol) - np.dot(mu, prec_chol)
             log_prob[:, k] = np.sum(np.square(y), axis=1)
 
+    elif covariance_type in 'diag':
+        precisions = precision_cholesky**2
+        log_prob = (np.sum((means ** 2 * precisions), 1) - 2.0 * np.dot(X, (means * precisions).T) + np.dot(X**2, precisions.T))
+
+        raise a
     return -0.5 * (n_features * np.log(2 * np.pi) + log_prob) + log_det
 
 
@@ -748,7 +759,7 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
 
 
 def _expectation_maximization(y, mu, cov, weight, responsibility=None,
-    covariance_type="free", threshold=1e-5, max_em_iterations=10000, **kwargs):
+    covariance_type="full", threshold=1e-5, max_em_iterations=10000, **kwargs):
     r"""
     Run the expectation-maximization algorithm on the current set of
     multivariate Gaussian mixtures.
@@ -838,7 +849,7 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None,
 
 
 def split_component(y, mu, cov, weight, responsibility, index, 
-    covariance_type="free", **kwargs):
+    covariance_type="full", **kwargs):
     r"""
     Split a component from the current mixture and determine the new optimal
     state.
@@ -979,7 +990,7 @@ def split_component(y, mu, cov, weight, responsibility, index,
 
 
 def delete_component(y, mu, cov, weight, responsibility, index, 
-    covariance_type="free", **kwargs):
+    covariance_type="full", **kwargs):
     r"""
     Delete a component from the mixture, and return the new optimal state.
 
@@ -1047,7 +1058,7 @@ def delete_component(y, mu, cov, weight, responsibility, index,
 
 
 def merge_component(y, mu, cov, weight, responsibility, index, 
-    covariance_type="free", **kwargs):
+    covariance_type="full", **kwargs):
     r"""
     Merge a component from the mixture with its "closest" component, as
     judged by the Kullback-Leibler distance.

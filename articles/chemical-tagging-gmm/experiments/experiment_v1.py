@@ -31,6 +31,9 @@ finite = np.all(np.array([
 
 results = []
 
+running_delta_bic = 0
+running_delta_mml = 0
+
 np.random.seed(1234567890)
 
 for n in range(min_clusters, N):
@@ -47,20 +50,38 @@ for n in range(min_clusters, N):
         # Construct the matrix of data.
         y = np.array([catalog[p][match] for p in predictors]).T
         
-        raise a
+        K = cluster_indices.size
+        D = y.shape[1]
+        true_mu = np.empty((K, D))
+        true_cov = np.empty((K, D, D))
+        true_weights = np.empty(K)
+
+        for k, cluster_index in enumerate(cluster_indices):
+            _match = finite * (catalog["group"] == cluster_index) 
+            _data = np.array([catalog[p][_match] for p in predictors])
+            true_mu[k] = np.mean(_data, axis=1)
+            true_weights[k] = _match.sum()
+            true_cov[k] = np.cov(_data)
+
+        true_weights /= true_weights.sum()
 
         # Determine number of Gaussians from MML
         model = snob.GaussianMixture(y)
-        op_mu, op_cov, op_weight, meta = model.fit(covariance_regularization=0)
+        op_mu, op_cov, op_weight, meta = model.fit(covariance_regularization=1e-6)
         mml_num = op_weight.size
 
         # Consider alternative MML, where we initialize it at the true solution
 
         model2 = snob.GaussianMixture(y)
         op_mu2, op_cov2, op_weight2, meta2 = model.fit(
-            covariance_regularization=0,
-            __initialize=)
-    
+            covariance_regularization=1e-6,
+            __initialize=(true_mu, true_cov, true_weights))
+
+        if op_weight2.size != op_weight.size:
+            #assert meta2["message_length"] < meta["message_length"]
+            print("DID BETTER FROM TRUE")
+            mml_num = op_weight2.size
+
         # Determine number of components by AIC/BIC.
         aic = []
         for k in range(1, 1 + 2*N):
@@ -93,6 +114,9 @@ for n in range(min_clusters, N):
         results.append((n, m, y.shape[0], best_by_aic, best_by_bic, mml_num))
 
         print(results[-1])
+        running_delta_mml += abs(mml_num - n)
+        running_delta_bic += abs(best_by_bic - n)
+        print("MML/BIC", running_delta_mml, running_delta_bic)
 
 results = np.array(results)
 
