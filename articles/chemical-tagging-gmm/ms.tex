@@ -499,7 +499,7 @@ $\sum_{k=1}^{K}w_k = 1$.
 required to encode the weights,
 
 \begin{equation}
-I(\weights) = \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\weight_k - \log{\Gamma{\left(K\right)}} \quad ,
+I(\weights) = \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k - \log{\Gamma{\left(K\right)}} \quad ,
 \end{equation}
 
 \noindent{}where $\Gamma(K)$ is the usual gamma function for positive integers
@@ -555,29 +555,16 @@ density \citep[e.g., Section 5.2.3 of ][]{Schafer_1990}:
 \end{equation}
 
 
-% The fisher information matrix
-
-
-
-\subsection{Prior probabilities on the parameters}
-\label{sec:priors}
-
-
-
-
-
-
-\subsection{Expected Fisher information}
-
-Computing the expected Fisher information requires the second order partial
-derivatives of the negative log-likelihood $-\likelihood(\data|\vecmean,\veccov)$.
-This is difficult to calculate for mixtures of Gaussians, and for this reason
-we approximate the determinant of the Fisher information 
-$|\mathcal{F}(\vecmean, \veccov)|$ as the product of 
-$|\mathcal{F}\left(\vecmean\right)|$ and $|\mathcal{F}\left(\veccov\right)|$ 
+Computing the expected Fisher information $\mathcal{F}$ requires the second 
+order partial derivatives of the negative log-likelihood 
+$-\likelihood(\data|\vecmean,\veccov)$.
+We approximate the determinant of the Fisher information 
+$|\mathcal{F}(\vecmean_k, \veccov_k)|$ as the product of 
+$|\mathcal{F}\left(\vecmean_k\right)|$ and $|\mathcal{F}\left(\veccov_k\right)|$ 
 \citep{Oliver_1996,Roberts_1998}. 
 We begin by taking second derivative of the log-likelihood function
-$\likelihood\left(\data|\vecmean,\veccov\right)$,
+$\likelihood\left(\data|\vecmean,\veccov\right)$ for a multivariate Gaussian
+distribution,
 
 \begin{equation}
   \likelihood\left(\data|\vecmean, \veccov\right) = 
@@ -596,7 +583,7 @@ $\likelihood\left(\data|\vecmean,\veccov\right)$,
 matrix is:
 
 \begin{eqnarray}
-  |\mathcal{F}(\vecmean)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = N^d|\veccov|^{-1} \quad .
+  |\mathcal{F}(\vecmean_k)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = N^d|\veccov|^{-1} \quad .
 \end{eqnarray}
 
 Computing the Fisher information of the covariance matrix 
@@ -621,28 +608,82 @@ $|\mathcal{F}\left(\vecmean,\veccov\right)|$ as:
   |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & N^\frac{d(d+3)}{2}2^{-d}|\veccov|^{-(d+2)} \quad .
 \end{eqnarray}
 
+Thus for all $K$ mixtures, Equation \ref{eq:10} expands to:
+
+\begin{eqnarray}
+I(\vecmean, \veccov) &=& -\sum_{k=1}^K\frac{D + 1}{2}\log{|\veccov_k|} 
+                         + \frac{1}{2}\sum_{k=1}^K\left[\frac{D(D+3)}{2}\log{N} - D\log{2} - (D + 2)\log{|\veccov_k|}\right] \nonumber \\
+I(\vecmean, \veccov) &=& -\sum_{k=1}^K\frac{D + 1}{2}\log{|\veccov_k|}
+                         + \frac{KD(D + 3)}{4}
+                         + \frac{D\log{2}}{2}
+                         - \frac{1}{2}\sum_{k=1}^K (D+2)\log{|\veccov_k|} \nonumber\\
+I(\vecmean, \veccov) &=& -\sum_{k=1}^K(D + 1)\log{|\veccov_k|} + \frac{1}{2}\left(\frac{KD(D + 3)}{2} + D\log{2}\right)
+\end{eqnarray}
 
 
-\subsection{Encoding the message}
 
-Given our priors, likelihood function, and approximate expressions for the
-Fisher information, we are now in a position to calculate the total message
-length.
-There are a number of components that go into the message:
+\subsubsection{Encoding the data, given the model parameters}
+\label{sec:encoding-data}
 
 
+Each datum can only be stated with a precision which is given by the accuracy
+of the measurement.
+If we assume homoskedastic noise properties for the observed data, and the
+precision that each elemental abundance can be measured is $\epsilon$, then
+the \emph{probability} of a datum is given by 
+$\textrm{Pr}(\datum_n) = \epsilon^D\textrm{Pr}(\datum_i|\mathcal{M})$
+where $\mathcal{M}$ represents the model and $\textrm{Pr}(\datum_i|\mathcal{M})$
+is the \emph{probability density}.
+Note that $\epsilon$ is a constant, and is only used to maintain validity 
+between \emph{probability} and \emph{probability density}.
+For these experiments we adopt $\epsilon = 0.01$, but note that the value of
+$\epsilon$ has no effect on our inferences.
+
+The length of the total encoding of a datum given the model is,
+\begin{equation}
+  I(\data_n) = -\log{\textrm{Pr}(\data_n)} = -D\log\epsilon - \log\sum_{k=1}^{K}w_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)
+\end{equation}
+
+\noindent{}and for the entire data:
+
+\begin{equation}
+  I(\data|\vectheta) = -ND\log\epsilon - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k)
+\end{equation}
 
 
-A common method to estimate the parameters of a Gaussian distribution is by
-maximum likelihood, where the log-likelihood $\likelihood$ is maximized. In
-order to do this, one computes the gradient of the log-likelihood function
-with respect to the parameters and solves the resulting equations.
+\subsubsection{Encoding the lattice constant}
 
 
-- Encoding the message.
+
+\subsection{The Objective Function}
+\label{sec:objective-function}
 
 
-- Process of expectation and maximization for each step.
+The message lengths of individual components allows us to fully specify an
+objective function to minimise the total message length, given any number of
+Gaussian mixtures $K$ and parameter estimates $\vectheta$:
+
+\begin{equation}
+% TODO:
+  I(\vectheta,\data) = I(K) + I(\weights) + \sum_{k=1}^{K}I(\vectheta_k) + I(\data|\vectheta) + \textrm{lattice} \quad .
+\end{equation}
+
+Substituting the expressions outlined in previous subsections, we arrive at:
+
+\begin{equation}
+  % FULL EQUATION.
+  I(\vectheta,\data) = long
+\end{equation}
+
+Note that our objective function includes the number of mixtures $K$, a
+discrete valued parameter. 
+Because $K$ is not continuous, this complicates our optimization procedure.
+
+
+Here we will outline our optimization procedure to minimise the message length
+when $K$ is known and fixed, before briefly describing our search strategy to
+move between trial values of $K$.
+
 
 
 \section{Experiments}
@@ -674,6 +715,7 @@ tagging.
 
 \acknowledgments
 
+This research has made use of NASA's Astrophysics Data System.
 This research is supported by an Australian Research Council Discovery Project
 grant (DP160100637). 
 Source code for this project is available at \texttt{\giturl}. This document
