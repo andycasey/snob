@@ -41,6 +41,7 @@
 \def\weights{\vect{\weight}}
 \def\datum{y}
 \def\data{\vect{\datum}}
+\def\likelihood{\mathcal{L}}
 
 % Affiliation(s)
 \newcommand{\moca}{
@@ -425,120 +426,215 @@ the estimates $\vectheta$ that minimise the message length expression,
 \begin{equation}
   I(\vectheta,\data) 
     = \frac{p}{2}\log{q_p} - \log{\left(\frac{h(\vectheta)}{\sqrt{|\mathcal{F}(\vectheta)|}}\right)}
-      - \mathcal{L}\left(\data|\vectheta\right) + \frac{p}{2}
+      - \likelihood\left(\data|\vectheta\right) + \frac{p}{2}
+      \label{eq:message-length}
 \end{equation}
 
 
 \noindent{}is the MML estimate.
 Here $h(\vectheta)$ is the prior on the hypothesis, $p$ is the number of free
-parameters in the model, and $|\mathcal{F}\left(\vectheta\right)|$ is the
+parameters in the model, $q_p$ is the lattice quantization constant
+\citep[e.g.,][]{Conway_1984}, and $|\mathcal{F}\left(\vectheta\right)|$ is the
 determinant of the \emph{expected} Fisher information matrix (the second-order
-partial derivatives of the negative log-likelihood function $-\mathcal{L}(\data|\vectheta)$.
+partial derivatives of the negative log-likelihood function 
+$-\likelihood(\data|\vectheta)$).
 
 
 
-The message length for a model includes the length (in bits of entropy)
-required to transmit the model parameters, and the length required to transmit
-the residuals of the data given the model.
-There is a wealth of literature on the successes (and derivatives) of MML
-in the fields of medicine, statistics, etc.
 
-- Deep grounds in statistics, etc.
+%The message length for a model includes the length (in bits of entropy)
+%required to transmit the model parameters, and the length required to transmit
+%the residuals of the data given the model.
+%There is a wealth of literature on the successes (and derivatives) of MML
+%in the fields of medicine, statistics, etc.
+
+%- Deep grounds in statistics, etc.
 
 
 The MML principle requires that the prior beliefs of the model to be fully 
 specified as part of the message. 
-This requirement provides a familiar link to Bayesian statistics, and allows
-one to think of MML as a form of a Bayesian optimization problem that is 
-deeply grounded in information theory.
-Unfortunately, strict MML is generally intractable, and therefore we require
-an app
+We must explicitly specify our prior beliefs on the model parameters described
+in Section \ref{sec:model} in order to minimize the full message length.
+Indeed, the message must fully specify all components necessary for the
+receiver to be able to reconstruct the message.
+For the model specified in Section \ref{sec:model}, this requirement forces us
+to specify a number of components:
+
+\begin{enumerate}
+  \item The number of Gaussian mixtures, $K$.
+  \item Encoding the relative weights $\weights$ of the Gaussian mixtures.
+  \item Encoding the component parameters $\vecmean$, $\veccov$ for all of
+        the Gaussian mixtures.
+  \item Encoding the data, given the model parameters.
+  \item The lattice quantization constant $q_p$ for the number of model
+        parameters $p$.
+\end{enumerate}
+
+Some of these components require non-trivial derivations or approximations in
+order to calculate the length of the message required to encode the component.
+For this reason, we will consider the message length of each component in turn
+before returning to the full message length specified in Equation \ref{eq:message-length}.
 
 
+\subsubsection{Encoding the number of Gaussian mixtures, $K$}
+\label{sec:encoding-k}
 
 
-In order to minimize the full message length, we must specify the priors on
-our parameters.
+We assume that fewer mixtures are more likely than a larger number of mixtures.
+Specifically, we assume that $p(K) \propto 2^{-K}$, which implies that the
+message length required to encode $K$ is given by:
+
+\begin{equation}
+  I(K) = -\log{p(K)} = K\log{2} + \textrm{constant} \quad .
+\end{equation}
 
 
-\subsection{Prior probabilities on the parameters}
-
+\subsubsection{Encoding the relative weights, $\weights$}
+\label{sec:encoding-weights}
 
 We assume a uniform prior on the mixing weights $\bm{w}$, only requiring that
-$\sum_{k=1}^{K}w_k = 1$. A useful extension of this work might be to impose
-a Dirchlet prior on the mixing weights $\bm{w}$, or a distribution inspired by
-the stellar mass function and observed selection function.
+$\sum_{k=1}^{K}w_k = 1$.
+% This implies the weights are parameters of a multinomial distribution.
+\citet{Boulton_1969} give the following expression for the message length 
+required to encode the weights,
+
+\begin{equation}
+I(\weights) = \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\weight_k - \log{\Gamma{\left(K\right)}} \quad ,
+\end{equation}
+
+\noindent{}where $\Gamma(K)$ is the usual gamma function for positive integers
+$\Gamma(K) = (K - 1)!$.
+A useful extension of this work might be to impose a Dirchlet prior on the 
+mixing weights $\weights$, or a distribution inspired by the stellar mass 
+function and/or an observed selection function.
+
+%This requirement provides a familiar link to Bayesian statistics, and allows
+%one to think of MML as a form of a Bayesian optimization problem that is 
+%deeply grounded in information theory, with successful contributions in
+%economics, medicine, statistics, etc \citep{citations_needed}.
 
 
+\subsubsection{Encoding the mixture parameters $\vecmean$ and $\veccov$}
+\label{sec:encoding-mixture-parameters}
+
+Recall that what we need to encode is both our priors on the model parameters
+and the determinant of the expected fisher information matrix.
+For the $k$-th mixture this becomes,
+
+\begin{equation}
+  I(\vecmean_k,\veccov_k) = -\log{\left(\frac{p(\vecmean_k,\veccov_k)}{\sqrt{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}}\right)}
+                          = -\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}
+\end{equation}
+
+\noindent{}and for all mixtures:
+
+\begin{equation}
+I(\vecmean,\veccov) = -\sum_{k=1}^{K}\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\sum_{k=1}^{K}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}
+\end{equation}
+
+This requires us to explicitly specify our priors on the parameters $\vecmean$
+and $\veccov$.
 We adopt an improper uniform prior of 
-$\mathcal{U}(\bm{\mu}) = [-\infinity, \infinity]$ on all multivariate mean 
-abundances $\bm{\mu}$ (in all $D$ dimensions). This prior has no impact on
-our inferences and becomes proper when it enters the (accepted) posterior
-distribution. We similarily could adopt a proper and large uniform prior on all 
-mean abundances of $\mathcal{U}(\bm{\mu}) = [-12, 12]$ and the result would be
-the same.
+$\mathcal{U}(\vecmean) = [-\infinity, \infinity]$ on all multivariate mean 
+abundances $\vecmean$ (in all $D$ dimensions).
+This prior has no impact on our inferences and becomes proper when it enters 
+the (accepted) posterior distribution. 
+We similarily could adopt a proper and large uniform prior on all mean 
+abundances of $\mathcal{U}(\vecmean) = [-12, 12]$ (24 orders of magnitude!) 
+and the result would be the same.
+
 
 We adopt a congujate inverted Wishart prior for the covariance matrices in the
-individual mixtures. The joint prior density for the parameters of a single
+individual mixtures. 
+The joint prior density for the parameters of a single
 mixture is given by the limiting form of the normal inverted-Wishart
 density \citep[e.g., Section 5.2.3 of ][]{Schafer_1990}:
 
-
 \begin{equation}
-    p(\bm{\mu},\bm{\Sigma}) \propto |C|^{\frac{d + 1}{2}} \quad .
+    p(\vecmean_k,\veccov_k) \propto |\veccov_k|^{\frac{D + 1}{2}} \quad .
 \end{equation}
+
+
+% The fisher information matrix
+
+
+
+\subsection{Prior probabilities on the parameters}
+\label{sec:priors}
+
+
+
 
 
 
 \subsection{Expected Fisher information}
 
 Computing the expected Fisher information requires the second order partial
-derivatives of the negative log-likelihood $-\mathcal{L}(\bm{y}|\bm{\mu},\bm{\Sigma})$.
-This can be tricky for mixtures -- explain why.
-We approximate the determinant of of the Fisher information matrix,
-$|\mathcal{F}(\bm{\mu},\bm{\Sigma})|$ as the product of $|\mathcal{F}\left(\bm{\mu}\right)|$ and $|\mathcal{F}\left(\bm{\Sigma}\right)|$ \citep{Oliver_1996,Roberts_1998}.
-
-% Equation for log-likelihood of the data:
-% \begin{equation}
-% \mathcal{L}\left(\bm{y}|\bm{\mu},\bm{\Sigma}) = -\frac{Nd}{2}\log{\left(2\pi\right)} - \frac{N}{2}\log{|\bm{\Sigma}|} - \frac{1}{2}\Sigma_{i=1}^{N}(\bm{y}_i - \bm{mu})^\intercal{}\Sigma^{-1}(\bm{y}_i - \bm{\mu})
-%\end{equation}
-
-Taking the second derivative of the log-likelihood of the data with respect to $\bm{\mu}$:
+derivatives of the negative log-likelihood $-\likelihood(\data|\vecmean,\veccov)$.
+This is difficult to calculate for mixtures of Gaussians, and for this reason
+we approximate the determinant of the Fisher information 
+$|\mathcal{F}(\vecmean, \veccov)|$ as the product of 
+$|\mathcal{F}\left(\vecmean\right)|$ and $|\mathcal{F}\left(\veccov\right)|$ 
+\citep{Oliver_1996,Roberts_1998}. 
+We begin by taking second derivative of the log-likelihood function
+$\likelihood\left(\data|\vecmean,\veccov\right)$,
 
 \begin{equation}
-\frac{\delta\mathcal{L}}{\delta\bm{\mu}} = \Sigma_{i=1}^{N}\bm{C}^{-1}(\bm{y}_i - \bm{\mu})
+  \likelihood\left(\data|\vecmean, \veccov\right) = 
+  -\frac{Nd}{2}\log{\left(2\pi\right)} - \frac{N}{2}\log{|\veccov|} - \frac{1}{2}\Sigma_{i=1}^{N}\left(\data_i - \vecmean\right)^\intercal{}\veccov^{-1}\left(\bm{y}_i - \vecmean\right)
 \end{equation}
 
-\begin{equation}
-\frac{\delta^2\mathcal{L}}{\delta\bm{\mu}^2} = N\bm{C}^{-1}
-\end{equation}
+\noindent{}with respect to $\vecmean$,
 
+\begin{eqnarray}
+  \frac{\delta\likelihood}{\delta\vecmean} = \Sigma_{i=1}^{N}\veccov^{-1}(\data_i - \vecmean)
+  & \hspace{1em}\textrm{and}\hspace{1em}
+  & \frac{\delta^2\likelihood}{\delta\vecmean^2} = -N\veccov^{-1} \quad ,
+\end{eqnarray}
 
-Computing the Fisher information of the covariance matrix $|\mathcal{F}\left(\bm{C}\right)|$ is harder. For a full covariance matrix with off-diagonal terms, the total
-number of free parameters required is $d(d+1)/2$.
+\noindent{}and for a $d$-dimensional vector $\vecmean$ the Fisher information
+matrix is:
+
+\begin{eqnarray}
+  |\mathcal{F}(\vecmean)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = N^d|\veccov|^{-1} \quad .
+\end{eqnarray}
+
+Computing the Fisher information of the covariance matrix 
+$|\mathcal{F}\left(\veccov\right)|$ is harder. 
+For a full covariance matrix with off-diagonal terms, the total number of free 
+parameters required is $d(d+1)/2$.
 \citep{Magnus_1988} derived an analytical expression:
+
 % Dwyer_1967, Bozdogan_1990? Drton_2009?
 % TODO: This derivation is a nightmare to find
 
-
 \begin{equation}
-|\mathcal{F}\left(\bm{C}\right) = N^\frac{d(d+1)}{2}2^{-d}|\bm{C}|^{-(d+1)}
+  |\mathcal{F}\left(\veccov\right)| = N^\frac{d(d+1)}{2}2^{-d}|\veccov|^{-(d+1)}
 \end{equation}
 
-Giving the approximate determinant of the Fisher information $|\mathcal{F}\left(\bm{\mu},\bm{C}\right)|$ as:
+\noindent{}Giving the approximate determinant of the expected Fisher information 
+$|\mathcal{F}\left(\vecmean,\veccov\right)|$ as:
 
 \begin{eqnarray}
-  |\mathcal{F}\left(\bm{\mu},\bm{C}\right)| & \approx & |\mathcal{F}\left(\bm{\mu}\right)|\cdot|\mathcal{F}\left(\bm{C}\right)| \\
-  & \approx & N^{d}|\bm{C}|^{-1}N^\frac{d(d+1)}{2}2^{-d}|\bm{C}|^{-(d+1)} \\
-  |\mathcal{F}\left(\bm{\mu},\bm{C}\right)| & \approx & N^\frac{d(d+3)}{2}2^{-d}|\bm{C}|^{-(d+2)}
+  |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & |\mathcal{F}\left(\vecmean\right)|\cdot|\mathcal{F}\left(\veccov\right)| \nonumber \\
+  |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & N^{d}|\veccov|^{-1}N^\frac{d(d+1)}{2}2^{-d}|\veccov|^{-(d+1)} \nonumber \\
+  |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & N^\frac{d(d+3)}{2}2^{-d}|\veccov|^{-(d+2)} \quad .
 \end{eqnarray}
 
+
+
+\subsection{Encoding the message}
+
+Given our priors, likelihood function, and approximate expressions for the
+Fisher information, we are now in a position to calculate the total message
+length.
+There are a number of components that go into the message:
 
 
 
 
 A common method to estimate the parameters of a Gaussian distribution is by
-maximum likelihood, where the log-likelihood $\mathcal{L}$ is maximized. In
+maximum likelihood, where the log-likelihood $\likelihood$ is maximized. In
 order to do this, one computes the gradient of the log-likelihood function
 with respect to the parameters and solves the resulting equations.
 
