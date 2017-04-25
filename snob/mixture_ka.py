@@ -19,8 +19,7 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
-
-_DEFAULT_COVARIANCE_TYPE = "diag"
+_DEFAULT_COVARIANCE_TYPE = "full"
 
 class GaussianMixture(object):
 
@@ -32,47 +31,43 @@ class GaussianMixture(object):
     The score function and perturbation search strategy is that of Kasarapu
     & Allison (2015).
 
-    :param y:
-        A :math:`N\times{}D` array of the observations :math:`y`,
-        where :math:`N` is the number of observations, and :math:`D` is the
-        number of dimensions per observation.
-
     :param covariance_type: [optional]
         The structure of the covariance matrix for individual components.
-        The available options are: `free` for a free covariance matrix,
-        `diag` for a diagonal covariance matrix, `tied` for a common covariance
-        matrix for all components, `tied_diag` for a common diagonal
-        covariance matrix for all components (default: ``free``).
+        The available options are: `full` for a free covariance matrix, or
+        `diag` for a diagonal covariance matrix (default: ``diag``).
+
+    :param threshold: [optional]
+        The relative improvement in log likelihood required before stopping
+        an expectation-maximization step (default: ``1e-5``).
+
+    :param max_em_iterations: [optional]
+        The maximum number of iterations to run per expectation-maximization
+        loop (default: ``10000``).
     """
 
-    parameter_names = ("mean", "cov", "weight")
+    parameter_names = ("means", "covariances", "weights")
 
-    def __init__(self, y, covariance_type=_DEFAULT_COVARIANCE_TYPE, **kwargs):
+    def __init__(self, covariance_type="full", threshold=1e-5, 
+        max_em_iterations=1e4, covariance_regularization=0, **kwargs):
 
-        y = np.atleast_2d(y)
-        if 1 > y.size:
-            raise ValueError("no data!")
-        
-        available = ("full", "diag", "tied", "tied_diag")
+        available = ("full", "diag",)
         covariance_type = covariance_type.strip().lower()
         if covariance_type not in available:
             raise ValueError("covariance type '{}' is invalid. "\
                              "Must be one of: {}".format(
                                 covariance_type, ", ".join(available)))
 
-        if covariance_type not in ("full", "diag"):
-            raise NotImplementedError("don't get your hopes up")
+        if 0 >= threshold:
+            raise ValueError("threshold must be a positive value")
 
-        self._y = y
+        if 1 > max_em_iterations:
+            raise ValueError("max_em_iterations must be a positive integer")
+
+        self._threshold = threshold
+        self._max_em_iterations = max_em_iterations
         self._covariance_type = covariance_type
-
+        self._covariance_regularization = covariance_regularization
         return None
-
-
-    @property
-    def y(self):
-        r""" Return the data values, :math:`y`. """
-        return self._y
 
 
     @property
@@ -81,42 +76,25 @@ class GaussianMixture(object):
         return self._covariance_type
 
 
-
-    def _fit_kasarapu_allison(self, threshold=1e-5, max_em_iterations=10000, 
-        covariance_regularization=0, **kwargs):
+    def _fit_kasarapu_allison(self, y,  **kwargs):
         r"""
         Minimize the message length of a mixture of Gaussians, using the
         score function and perturbation search algorithm described by
         Kasarapu & Allison (2015).
 
-        :param threshold: [optional]
-            The relative improvement in log likelihood required before stopping
-            an expectation-maximization step (default: ``1e-5``).
-
-        :param max_em_iterations: [optional]
-            The maximum number of iterations to run per expectation-maximization
-            loop (default: ``10000``).
 
         :returns:
             A tuple containing the optimized parameters ``(mu, cov, weight)``.
         """
-
-        if 0 >= threshold:
-            raise ValueError("threshold must be a positive value")
-
-        if 1 > max_em_iterations:
-            raise ValueError("max_em_iterations must be a positive integer")
-
-        y = self._y # for convenience.
         N, D = y.shape
         
         callback = kwargs.get("callback", None)
 
         kwds = dict(
-            threshold=threshold, 
-            max_em_iterations=max_em_iterations,
+            threshold=self._threshold, 
+            max_em_iterations=self._max_em_iterations,
             covariance_type=self.covariance_type, 
-            covariance_regularization=covariance_regularization,
+            covariance_regularization=self._covariance_regularization,
             callback=callback)
 
         # Do we have an initialization keyword?
@@ -131,6 +109,7 @@ class GaussianMixture(object):
         N_cp = _parameters_per_component(D, self.covariance_type)
         R, ll, mindl = _expectation(y, mu, cov, weight, N_cp)
 
+ 
         ll_dl = [(ll, mindl)]
         op_params = [mu, cov, weight]
 
@@ -389,7 +368,12 @@ def _initialize(y, callback=None):
     weight = np.ones((1, 1))
     N, D = y.shape
     means = np.mean(y, axis=0).reshape((1, -1))
+
+    # For full
     cov = np.cov(y.T).reshape((1, D, D))
+
+    # For diag
+    #cov = np.diag(np.cov(y.T)).reshape((1, D))
 
     state = (means, cov, weight)
     if callback is not None:
@@ -513,7 +497,14 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
         raise UnsureError
 
     else:
-        log_det_cov = np.log(np.linalg.det(cov))
+        if len(cov.shape) == 2:
+            # diag
+            cov_ = np.array([_ * np.eye(D) for _ in cov])
+        else:
+            # full
+            cov_ = cov
+
+        log_det_cov = np.log(np.linalg.det(cov_))
     
         log_F_m = 0.5 * D * (D + 3) * np.log(np.sum(responsibility, axis=1)) 
         log_F_m += -log_det_cov
@@ -612,12 +603,24 @@ def _compute_cholesky_decomposition(covariances, covariance_type):
 
     elif covariance_type in "diag":
         cholesky_decomposition = 1.0 / np.sqrt(covariances)
-        raise a
 
     else:
         raise NotImplementedError("nope")
 
     return cholesky_decomposition
+
+
+def _estimate_gaussian_covariance_diag(responsibility, X, nk, means,
+    reg_covar):
+
+    denominator = nk[:, np.newaxis]
+    denominator[denominator > 1] = denominator[denominator > 1] - 1
+
+    avg_X2 = np.dot(responsibility, X * X) / denominator
+    avg_means2 = means**2
+    avg_X_means = means * np.dot(responsibility, X) / denominator
+    return avg_X2 - 2 * avg_X_means + avg_means2 + reg_covar
+
 
 
 
@@ -674,7 +677,6 @@ def _estimate_log_gaussian_prob(X, means, precision_cholesky, covariance_type):
         precisions = precision_cholesky**2
         log_prob = (np.sum((means ** 2 * precisions), 1) - 2.0 * np.dot(X, (means * precisions).T) + np.dot(X**2, precisions.T))
 
-        raise a
     return -0.5 * (n_features * np.log(2 * np.pi) + log_prob) + log_det
 
 
@@ -732,13 +734,18 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
         denom = w_effective_membership[m]
         denom = denom - 1 if denom > 1 else denom
         offset = y - new_mu[m]
-        new_cov[m] = np.dot(w_responsibility[m] * offset.T, offset) / denom
 
+        # For diag:
+        #new_cov[m] = _estimate_gaussian_covariance_diag(w_responsibility,
+        #    y, w_effective_membership, new_mu, kwargs.get("covariance_regularization", 0))
+
+        # For full:
+        new_cov[m] = np.dot(w_responsibility[m] * offset.T, offset) / denom
         new_cov[m] = new_cov[m] + kwargs.get("covariance_regularization", 0) * np.eye(D)
 
         assert np.linalg.det(new_cov[m]) > 0
         assert np.all(np.diag(new_cov[m]) > 0)
-
+        
     state = (new_mu, new_cov, new_weight)
 
     assert np.all(np.isfinite(new_mu))
@@ -899,7 +906,10 @@ def split_component(y, mu, cov, weight, responsibility, index,
     
     # Compute the direction of maximum variance of the parent component, and
     # locate two points which are one standard deviation away on either side.
-    U, S, V = np.linalg.svd(cov[index])
+    if covariance_type == "diag":
+        U, S, V = np.linalg.svd(np.array([_ * np.eye(D) for _ in cov]))
+    elif covariance_type == "full":
+        U, S, V = np.linalg.svd(cov[index])
     child_mu = mu[index] - np.vstack([+V[0], -V[0]]) * S[0]**0.5
 
     assert np.all(np.isfinite(child_mu))

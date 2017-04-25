@@ -66,15 +66,14 @@ for n in range(min_clusters, N):
         true_weights /= true_weights.sum()
 
         # Determine number of Gaussians from MML
-        model = snob.GaussianMixture(y)
-        op_mu, op_cov, op_weight, meta = model.fit(covariance_regularization=1e-6)
+        model = snob.GaussianMixture(covariance_regularization=1e-6)
+        op_mu, op_cov, op_weight, meta = model.fit(y)
         mml_num = op_weight.size
 
         # Consider alternative MML, where we initialize it at the true solution
 
-        model2 = snob.GaussianMixture(y)
-        op_mu2, op_cov2, op_weight2, meta2 = model.fit(
-            covariance_regularization=1e-6,
+        model2 = snob.GaussianMixture(covariance_regularization=1e-6)
+        op_mu2, op_cov2, op_weight2, meta2 = model.fit(y,
             __initialize=(true_mu, true_cov, true_weights))
 
         if op_weight2.size != op_weight.size:
