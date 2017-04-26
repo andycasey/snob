@@ -4,7 +4,7 @@ from snob import mixture_slf as slf
 
 #y = np.loadtxt("cluster_abundances.txt")
 
-n_samples, n_features, n_clusters, rank = 1000, 50, 2, 1
+n_samples, n_features, n_clusters, rank = 1000, 50, 4, 1
 sigma = 0.5
 true_specific_variances = sigma**2 * np.ones((1, n_features))
 
@@ -20,7 +20,6 @@ X = np.dot(true_factor_scores, true_factor_loads)
 
 # Assign objects to different clusters.
 indices = rng.randint(0, n_clusters, size=n_samples)
-#mu = 10 * np.arange(n_clusters)#rng.randn(n_clusters, n_features)
 true_means = rng.randn(n_clusters, n_features)
 for index in range(n_clusters):
     X[indices==index] += true_means[index]
@@ -38,27 +37,48 @@ X_hetero = X + rng.randn(n_samples, n_features) * sigmas
 
 #true_means = np.zeros((1, n_features))
 
-model = slf.SLFGaussianMixture(2)
-model.initialize_parameters(X_homo)
+model = slf.SLFGaussianMixture(n_clusters)
+#model.true_factor_scores = true_factor_scores
+#model.true_factor_loads = true_factor_loads
+#model.true_means = true_means
+#model.true_specific_variances = true_specific_variances
+model.fit(X_homo)
 
-#model.fit(X_homo)
-fig, axes = plt.subplots(3)
+#model.initialize_parameters(X_homo)
+
+fig, ax = plt.subplots()
+ax.scatter(true_factor_loads, model.factor_loads)
+
+fig, ax = plt.subplots()
+ax.scatter(true_factor_scores, model.factor_scores)
+
+
+fig, ax = plt.subplots()
+ax.scatter(true_specific_variances, model.specific_variances)
+
+
+fig, ax = plt.subplots()
 
 # means
 # This one is tricky because the indices are not necessarily the same.
 # So just take whichever is closest.
-indices = np.zeros(n_clusters, dtype=int)
+idx = np.zeros(n_clusters, dtype=int)
 for index, true_mean in enumerate(true_means):
     distance = np.sum(np.abs(model._means - true_mean), axis=1)
-    indices[index] = np.argmin(distance)
+    idx[index] = np.argmin(distance)
 
-assert len(indices) == len(set(indices))
+assert len(idx) == len(set(idx))
 
-ax = axes[0]
 true = true_means.flatten()
-inferred = model._means[indices].flatten()
+inferred = model._means[idx].flatten()
 ax.scatter(true, inferred)
 
+# Plot some data...
+
+fig, ax = plt.subplots()
+ax.scatter(X_homo[:, 0], X_homo[:, 1], facecolor="g")
+
+raise a
 
 # factor scores
 ax = axes[1]
