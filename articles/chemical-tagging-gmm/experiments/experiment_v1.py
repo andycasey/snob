@@ -31,6 +31,8 @@ finite = np.all(np.array([
 
 results = []
 
+covariance_type = "diag"
+
 running_delta_bic = 0
 running_delta_mml = 0
 
@@ -66,55 +68,56 @@ for n in range(min_clusters, N):
         true_weights /= true_weights.sum()
 
         # Determine number of Gaussians from MML
-        model = snob.GaussianMixture(covariance_regularization=1e-6)
+        model = snob.GaussianMixture(covariance_type=covariance_type, covariance_regularization=1e-6)
         op_mu, op_cov, op_weight, meta = model.fit(y)
         mml_num = op_weight.size
 
         # Consider alternative MML, where we initialize it at the true solution
 
-        model2 = snob.GaussianMixture(covariance_regularization=1e-6)
+        model2 = snob.GaussianMixture(covariance_type=covariance_type, covariance_regularization=1e-6)
         op_mu2, op_cov2, op_weight2, meta2 = model.fit(y,
             __initialize=(true_mu, true_cov, true_weights))
 
         if op_weight2.size != op_weight.size:
-            #assert meta2["message_length"] < meta["message_length"]
+            #assert meta2["message_length"] < meta["mess age_length"]
             print("DID BETTER FROM TRUE")
             mml_num = op_weight2.size
 
         # Determine number of components by AIC/BIC.
         aic = []
-        for k in range(1, 1 + 2*N):
-            model = mixture.GaussianMixture(n_components=k)
-            fitted_model = model.fit(y)
-
-            aic.append(fitted_model.aic(y))
-
-            if k > 2 \
-            and np.all(np.diff(aic[-3:]) > 0):
-                break
-
-        best_by_aic = 1 + np.argmin(aic)
-
-
-        # Determine number of components by BIC.
         bic = []
+        aic_converged = -1
+        bic_converged = -1
         for k in range(1, 1 + 2*N):
-            model = mixture.GaussianMixture(n_components=k)
-            fitted_model = model.fit(y)
+            try:
+                model = mixture.GaussianMixture(n_components=k, covariance_type=covariance_type, )
+                fitted_model = model.fit(y)
+
+            except:
+                print("FAILED ON GMM TEST {}".format(k))
+                aic_converged = 1 + np.argmin(aic)
+                bic_converged = 1 + np.argmin(bic)
+
+                break
 
             bic.append(fitted_model.bic(y))
+            aic.append(fitted_model.aic(y))
 
-            if k > 2 \
-            and np.all(np.diff(bic[-3:]) > 0):
-                break
+            if k > 2:
+                if aic_converged < 0 and np.all(np.diff(aic[-3:]) > 0):
+                    aic_converged = 1 + np.argmin(aic)
 
-        best_by_bic = 1 + np.argmin(bic)
+                if bic_converged < 0 and np.all(np.diff(bic[-3:]) > 0):
+                    bic_converged = 1 + np.argmin(bic)
 
-        results.append((n, m, y.shape[0], best_by_aic, best_by_bic, mml_num))
+                if aic_converged >= 0 and bic_converged >= 0:
+                    break
+
+        results.append((n, m, y.shape[0], aic_converged, bic_converged, mml_num))
 
         print(results[-1])
         running_delta_mml += abs(mml_num - n)
-        running_delta_bic += abs(best_by_bic - n)
+        running_delta_bic += abs(bic_converged - n)
         print("MML/BIC", running_delta_mml, running_delta_bic)
 
 results = np.array(results)

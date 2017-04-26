@@ -1,9 +1,7 @@
 
 """
-An estimator for a mixture of Gaussians, using minimum message length.
-
-The MML formalism is that of (Figueriedo & Jain, 2002), but the search
-strategy and score function adopted is that of Kasarapu & Allison (2015).
+An estimator for modelling data from a mixture of Gaussians, 
+using an objective function based on minimum message length.
 """
 
 __all__ = [
@@ -19,43 +17,46 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_COVARIANCE_TYPE = "full"
 
 class GaussianMixture(object):
 
     r"""
     Model data from (potentially) many multivariate Gaussian distributions, 
-    using minimum message length (MML) as the cost function.
-
-    The priors and MML formalism is that of Figueiredo & Jain (2002).
-    The score function and perturbation search strategy is that of Kasarapu
-    & Allison (2015).
+    using minimum message length (MML) as the objective function.
 
     :param covariance_type: [optional]
         The structure of the covariance matrix for individual components.
         The available options are: `full` for a free covariance matrix, or
         `diag` for a diagonal covariance matrix (default: ``diag``).
 
+    :param covariance_regularization: [optional]
+        Regularization strength to add to the diagonal of covariance matrices
+        (default: ``0``).
+
     :param threshold: [optional]
-        The relative improvement in log likelihood required before stopping
-        an expectation-maximization step (default: ``1e-5``).
+        The relative improvement in message length required before stopping an
+        expectation-maximization step (default: ``1e-5``).
 
     :param max_em_iterations: [optional]
         The maximum number of iterations to run per expectation-maximization
         loop (default: ``10000``).
     """
 
-    parameter_names = ("means", "covariances", "weights")
+    parameter_names = ("mean", "covariance", "weight")
 
-    def __init__(self, covariance_type="full", threshold=1e-5, 
-        max_em_iterations=1e4, covariance_regularization=0, **kwargs):
+    def __init__(self, covariance_type="diag", covariance_regularization=0, 
+        threshold=1e-5, max_em_iterations=10000, **kwargs):
 
-        available = ("full", "diag",)
+        available = ("full", "diag", )
         covariance_type = covariance_type.strip().lower()
         if covariance_type not in available:
             raise ValueError("covariance type '{}' is invalid. "\
                              "Must be one of: {}".format(
                                 covariance_type, ", ".join(available)))
+
+        if 0 > covariance_regularization:
+            raise ValueError(
+                "covariance_regularization must be a non-negative float")
 
         if 0 >= threshold:
             raise ValueError("threshold must be a positive value")
@@ -76,42 +77,55 @@ class GaussianMixture(object):
         return self._covariance_type
 
 
-    def _fit_kasarapu_allison(self, y,  **kwargs):
+    @property
+    def covariance_regularization(self):
+        r""" 
+        Return the regularization applied to diagonals of covariance matrices.
+        """
+        return self._covariance_regularization
+
+
+    @property
+    def threshold(self):
+        r""" Return the threshold improvement required in message length. """
+        return self._threshold
+
+
+    @property
+    def max_em_iterations(self):
+        r""" Return the maximum number of expectation-maximization steps. """
+        return self._max_em_iterations
+
+
+    def _fit_kasarapu_allison(self, y, **kwargs):
         r"""
-        Minimize the message length of a mixture of Gaussians, using the
-        score function and perturbation search algorithm described by
+        Minimize the message length of a mixture of Gaussians, 
+        using the perturbation search algorithm described by
         Kasarapu & Allison (2015).
 
+        :param y:
+            A :math:`N\times{}D` array of the observations :math:`y`,
+            where :math:`N` is the number of observations, and :math:`D` is
+            the number of dimensions per observation.
 
         :returns:
             A tuple containing the optimized parameters ``(mu, cov, weight)``.
         """
-        N, D = y.shape
-        
-        callback = kwargs.get("callback", None)
 
         kwds = dict(
             threshold=self._threshold, 
             max_em_iterations=self._max_em_iterations,
             covariance_type=self.covariance_type, 
-            covariance_regularization=self._covariance_regularization,
-            callback=callback)
+            covariance_regularization=self._covariance_regularization)
 
-        # Do we have an initialization keyword?
-        if kwargs.get("__initialize", None) is not None:
-            mu, cov, weight = kwargs.pop("__initialize")
+        # Initialize the mixture.
+        mu, cov, weight = _initialize(y, **kwds)
 
-        else:
-            # Initialize as a one-component mixture.
-            mu, cov, weight = _initialize(y, callback=callback)
-
+        N, D = y.shape
         iterations = 1
-        N_cp = _parameters_per_component(D, self.covariance_type)
-        R, ll, mindl = _expectation(y, mu, cov, weight, N_cp)
-
- 
-        ll_dl = [(ll, mindl)]
-        op_params = [mu, cov, weight]
+        
+        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+        ll_dl = [(ll, message_length)]
 
         while True:
 
@@ -120,63 +134,55 @@ class GaussianMixture(object):
                 
             # Exhaustively split all components.
             for m in range(M):
-                r = (_mu, _cov, _weight, _R, _meta, p_dl) \
-                  = split_component(y, mu, cov, weight, R, m, **kwds)
+                p = split_component(y, mu, cov, weight, R, m, **kwds)
 
                 # Keep best split component.
-                if p_dl < best_perturbations["split"][-1]:
-                    best_perturbations["split"] = [m] + list(r)
+                if p[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [m] + list(p)
             
             if M > 1:
                 # Exhaustively delete all components.
                 for m in range(M):
-                    r = (_mu, _cov, _weight, _R, _meta, p_dl) \
-                      = delete_component(y, mu, cov, weight, R, m, **kwds)
+                    p = delete_component(y, mu, cov, weight, R, m, **kwds)
 
                     # Keep best deleted component.
-                    if p_dl < best_perturbations["delete"][-1]:
-                        best_perturbations["delete"] = [m] + list(r)
+                    if p[-1] < best_perturbations["delete"][-1]:
+                        best_perturbations["delete"] = [m] + list(p)
                 
                 # Exhaustively merge all components.
                 for m in range(M):
-                    r = (_mu, _cov, _weight, _R, _meta, p_dl) \
-                      = merge_component(y, mu, cov, weight, R, m, **kwds)
+                    p = merge_component(y, mu, cov, weight, R, m, **kwds)
 
                     # Keep best merged component.
-                    if p_dl < best_perturbations["merge"][-1]:
-                        best_perturbations["merge"] = [m] + list(r)
+                    if p[-1] < best_perturbations["merge"][-1]:
+                        best_perturbations["merge"] = [m] + list(p)
 
             # Get best perturbation.
-            operation, bp \
-                = min(best_perturbations.items(), key=lambda x: x[1][-1])
-            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_dl = bp
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
 
-            logger.debug("Best operation: {} {}".format(operation, b_dl))
+            logger.debug("Best operation: {} {}".format(bop, b_ml))
 
-            if mindl > b_dl:
+            if message_length > b_ml:
                 # Set the new state as the best perturbation.
                 iterations += 1
-                mindl = b_dl
+                message_length = b_ml
                 mu, cov, weight, R = (b_mu, b_cov, b_weight, b_R)
-
-                #if weight.size == 8:
-                #    _message_length(y, mu, cov, weight, dofail=True)
-                #    raise a
-
 
             else:
                 # None of the perturbations were better than what we had.
                 break
 
         # TODO: a full_output response.
-        meta = dict(message_length=mindl)
+        meta = dict(message_length=message_length)
         return (mu, cov, weight, meta)
         
     fit = _fit_kasarapu_allison
 
 
 
-def responsibility_matrix(y, mu, cov, weight, full_output=False):
+def responsibility_matrix(y, mu, cov, weight, covariance_type, 
+    full_output=False, **kwargs):
     r"""
     Return the responsibility matrix,
 
@@ -206,7 +212,8 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
 
     :param cov:
         The covariance matrices of the :math:`K` multivariate normal
-        distributions.
+        distributions. The shape of this array will depend on the 
+        ``covariance_type``.
 
     :param weight:
         The current estimates of the relative mixing weight.
@@ -220,45 +227,16 @@ def responsibility_matrix(y, mu, cov, weight, full_output=False):
         log likelihood (per observation) will also be returned.
     """
 
-    """
-    N, D = y.shape
-    K = mu.shape[0]
+    precision_cholesky = _compute_precision_cholesky(cov, covariance_type)
+    weighted_log_prob = np.log(weight) + \
+        _estimate_log_gaussian_prob(y, mu, precision_cholesky, covariance_type)
 
-    constant = -D / 2.0 * np.log(2 * np.pi)
-    log_responsibility = constant * np.ones((K, N))
-
-    for k, (mu_k, cov_k) in enumerate(zip(mu, cov)):
-
-        U, S, V = np.linalg.svd(cov_k)
-        Cinv = np.dot(np.dot(V.T, np.linalg.inv(np.diag(S))), U.T)
-
-        O = y - mu_k
-        log_responsibility[k] += np.log(weight[k]) - 0.5 * (
-            np.log(np.linalg.det(cov_k))
-          + np.sum(O.T * np.dot(Cinv, O.T), axis=0))
-
-    # Any NaNs in log_responsibility occur because of almost infinitely small
-    # probability.
-    log_likelihood = scipy.misc.logsumexp(log_responsibility, axis=0)
-
-    responsibility = np.exp(log_responsibility - log_likelihood)
-
-    assert np.all(np.isfinite(responsibility))
-    assert np.all(np.isfinite(log_likelihood))
-    """
-
-    precision_cholesky = _compute_cholesky_decomposition(cov, _DEFAULT_COVARIANCE_TYPE)
-    weighted_log_prob = _estimate_log_gaussian_prob(y, mu, precision_cholesky, _DEFAULT_COVARIANCE_TYPE) \
-                      + np.log(weight)
-    log_prob_norm = scipy.misc.logsumexp(weighted_log_prob, axis=1)
+    log_likelihood = scipy.misc.logsumexp(weighted_log_prob, axis=1)
     with np.errstate(under="ignore"):
-        log_resp = weighted_log_prob - log_prob_norm[:, np.newaxis]
+        log_responsibility = weighted_log_prob - log_likelihood[:, np.newaxis]
 
-    #if K > 5:
-    #    raise a
-    responsibility = np.exp(log_resp).T
-    log_likelihood = log_prob_norm
-
+    responsibility = np.exp(log_responsibility).T
+    
     return (responsibility, log_likelihood) if full_output else responsibility
 
 
@@ -304,6 +282,12 @@ def kullback_leibler_for_multivariate_normals(mu_a, cov_a, mu_b, cov_b):
         the distance in units of bits.
     """
 
+    if len(cov_a.shape) == 1:
+        cov_a = cov_a * np.eye(cov_a.size)
+
+    if len(cov_b.shape) == 1:
+        cov_b = cov_b * np.eye(cov_b.size)
+
     U, S, V = np.linalg.svd(cov_a)
     Ca_inv = np.dot(np.dot(V.T, np.linalg.inv(np.diag(S))), U.T)
 
@@ -321,7 +305,7 @@ def kullback_leibler_for_multivariate_normals(mu_a, cov_a, mu_b, cov_b):
     ])
 
 
-def _parameters_per_component(D, covariance_type):
+def _parameters_per_mixture(D, covariance_type):
     r"""
     Return the number of parameters per Gaussian component, given the number 
     of observed dimensions and the covariance type.
@@ -331,58 +315,58 @@ def _parameters_per_component(D, covariance_type):
 
     :param covariance_type:
         The structure of the covariance matrix for individual components.
-        The available options are: `free` for a free covariance matrix,
-        `diag` for a diagonal covariance matrix, `tied` for a common covariance
-        matrix for all components, `tied_diag` for a common diagonal
-        covariance matrix for all components.
+        The available options are: `full` for a free covariance matrix, or
+        `diag` for a diagonal covariance matrix.
 
     :returns:
         The number of parameters required to fully specify the multivariate
-        mean and covariance matrix of :math:`D` Gaussian distributions.
+        mean and covariance matrix of a :math:`D`-dimensional Gaussian.
     """
 
     if covariance_type == "full":
         return int(D + D*(D + 1)/2.0)
     elif covariance_type == "diag":
         return 2 * D
-    elif covariance_type == "tied":
-        return D
-    elif covariance_type == "tied_diag":
-        return D
     else:
         raise ValueError("unknown covariance type '{}'".format(covariance_type))
 
 
-def _initialize(y, callback=None):
+def _initialize(y, covariance_type, covariance_regularization, **kwargs):
     r"""
     Return initial estimates of the parameters.
 
     :param y:
         The data values, :math:`y`.
 
+    :param covariance_type:
+        The structure of the covariance matrix for individual components.
+        The available options are: `full` for a free covariance matrix, or
+        `diag` for a diagonal covariance matrix.
+
+    :param covariance_regularization:
+        Regularization strength to add to the diagonal of covariance matrices.
+
+
     :returns:
         A three-length tuple containing the initial (multivariate) mean,
         the covariance matrix, and the relative weight.
     """
 
+    # If you *really* know what you're doing, then you can give your own.
+    if kwargs.get("__initialize", None) is not None:
+        return kwargs.pop("__initialize")
+
     weight = np.ones((1, 1))
     N, D = y.shape
-    means = np.mean(y, axis=0).reshape((1, -1))
+    mean = np.mean(y, axis=0).reshape((1, -1))
 
-    # For full
-    cov = np.cov(y.T).reshape((1, D, D))
+    cov = _estimate_covariance_matrix(y, np.ones((1, N)), mean,
+        covariance_type, covariance_regularization)
 
-    # For diag
-    #cov = np.diag(np.cov(y.T)).reshape((1, D))
-
-    state = (means, cov, weight)
-    if callback is not None:
-        callback(state, dict(stage="initialization"))
+    return (mean, cov, weight)
     
-    return state
 
-
-def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
+def _expectation(y, mu, cov, weight, **kwargs):
     r"""
     Perform the expectation step of the expectation-maximization algorithm.
 
@@ -411,29 +395,13 @@ def _expectation(y, mu, cov, weight, N_component_pars, **kwargs):
     """
 
     responsibility, log_likelihood = responsibility_matrix(
-        y, mu, cov, weight, full_output=True)
+        y, mu, cov, weight, full_output=True, **kwargs)
 
+    nll = -np.sum(log_likelihood)
+
+    I = _message_length(y, mu, cov, weight, responsibility, nll, **kwargs)
     
-    # Eq. 40 omitting -Nd\log\eps
-    #log_likelihood = np.sum(log_likelihood) 
-
-    # TODO: check delta_length.
-    # N_component_pars = int(D + D*(D + 1)/2.0)
-    #N, D = y.shape
-    #K = weight.size
-    #delta_length = -np.sum(log_likelihood) \
-    #    + (N_component_pars/2.0 * np.sum(np.log(weight))) \
-    #    + (N_component_pars/2.0 + 0.5) * K * np.log(N)
-
-    # I(K) = K\log{2} + constant
-
-    # Eq. 38
-    # I(w) = (M-1)/2 * log(N) - 0.5\sum_{k=1}^{K}\log{w_k} - (K - 1)!
-
-    delta_length2 = _message_length(y, mu, cov, weight)
-
-    
-    return (responsibility, -np.sum(log_likelihood), delta_length2)
+    return (responsibility, nll, I)
 
 
 def log_kappa(D):
@@ -443,16 +411,13 @@ def log_kappa(D):
 
 
 
-def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
+def _message_length(y, mu, cov, weight, responsibility, nll,
+    covariance_type, eps=0.10, dofail=False, **kwargs):
 
     # THIS IS SO BAD
 
     N, D = y.shape
     M = weight.size
-
-
-    responsibility, log_likelihood = responsibility_matrix(y, mu, cov,
-        weight, full_output=True)
 
     # I(M) = M\log{2} + constant
     I_m = M # [bits]
@@ -497,8 +462,7 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
         raise UnsureError
 
     else:
-        if len(cov.shape) == 2:
-            # diag
+        if covariance_type == "diag":
             cov_ = np.array([_ * np.eye(D) for _ in cov])
         else:
             # full
@@ -516,15 +480,15 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
     # TODO: bother about including this? -N * D * np.log(eps)
     
 
-    N_cp = _parameters_per_component(D, _DEFAULT_COVARIANCE_TYPE)
-    part2 = -np.sum(log_likelihood) + N_cp/(2*np.log(2))
+    N_cp = _parameters_per_mixture(D, covariance_type)
+    part2 = nll + N_cp/(2*np.log(2))
 
     AOM = 0.001 # MAGIC
-    Il = -np.sum(log_likelihood) - (D * N * np.log(AOM))
+    Il = nll - (D * N * np.log(AOM))
     Il = Il/np.log(2) # [bits]
 
     """
-    if D == 1:
+    if D == 1:log_likelihood
 
         # R1
         R1 = 10 # MAGIC
@@ -570,19 +534,18 @@ def _message_length(y, mu, cov, weight, eps=0.10, dofail=False):
     return I
 
 
-def _compute_cholesky_decomposition(covariances, covariance_type):
+def _compute_precision_cholesky(covariances, covariance_type):
     r"""
-    Compute the Cholesky decomposition of the given covariance matrices.
+    Compute the Cholesky decomposition of the precision of the covariance
+    matrices provided.
 
     :param covariances:
         An array of covariance matrices.
 
     :param covariance_type:
         The structure of the covariance matrix for individual components.
-        The available options are: `full` for a full covariance matrix,
-        `diag` for a diagonal covariance matrix, `tied` for a common covariance
-        matrix for all components, `tied_diag` for a common diagonal
-        covariance matrix for all components.
+        The available options are: `full` for a free covariance matrix, or
+        `diag` for a diagonal covariance matrix.
     """
 
     singular_matrix_error = "Failed to do Cholesky decomposition"
@@ -590,7 +553,7 @@ def _compute_cholesky_decomposition(covariances, covariance_type):
     if covariance_type in "full":
         M, D, _ = covariances.shape
 
-        cholesky_decomposition = np.empty((M, D, D))
+        cholesky_precision = np.empty((M, D, D))
         for m, covariance in enumerate(covariances):
             try:
                 cholesky_cov = scipy.linalg.cholesky(covariance, lower=True) 
@@ -598,30 +561,82 @@ def _compute_cholesky_decomposition(covariances, covariance_type):
                 raise ValueError(singular_matrix_error)
 
 
-            cholesky_decomposition[m] = scipy.linalg.solve_triangular(
+            cholesky_precision[m] = scipy.linalg.solve_triangular(
                 cholesky_cov, np.eye(D), lower=True).T
 
     elif covariance_type in "diag":
-        cholesky_decomposition = 1.0 / np.sqrt(covariances)
+        if np.any(np.less_equal(covariances, 0.0)):
+            raise ValueError(singular_matrix_error)
+
+        cholesky_precision = covariances**(-0.5)
 
     else:
         raise NotImplementedError("nope")
 
-    return cholesky_decomposition
+    return cholesky_precision
 
 
-def _estimate_gaussian_covariance_diag(responsibility, X, nk, means,
-    reg_covar):
 
-    denominator = nk[:, np.newaxis]
+def _estimate_covariance_matrix_full(y, responsibility, mean, 
+    covariance_regularization=0):
+
+    N, D = y.shape
+    M, N = responsibility.shape
+
+    membership = np.sum(responsibility, axis=1)
+
+    I = np.eye(D)
+    cov = np.empty((M, D, D))
+    for m, (mu, rm, nm) in enumerate(zip(mean, responsibility, membership)):
+
+        diff = y - mu
+        denominator = nm - 1 if nm > 1 else nm
+
+        cov[m] = np.dot(rm * diff.T, diff) / denominator \
+               + covariance_regularization * I
+
+    return cov
+
+
+def _estimate_covariance_matrix(y, responsibility, mean, covariance_type,
+    covariance_regularization):
+
+    available = {
+        "full": _estimate_covariance_matrix_full,
+        "diag": _estimate_covariance_matrix_diag
+    }
+
+    try:
+        function = available[covariance_type]
+
+    except KeyError:
+        raise ValueError("unknown covariance type")
+
+    return function(y, responsibility, mean, covariance_regularization)
+
+def _estimate_covariance_matrix_diag(y, responsibility, mean, 
+    covariance_regularization=0):
+
+    N, D = y.shape
+    M, N = responsibility.shape
+
+    denominator = np.sum(responsibility, axis=1)
     denominator[denominator > 1] = denominator[denominator > 1] - 1
 
-    avg_X2 = np.dot(responsibility, X * X) / denominator
-    avg_means2 = means**2
-    avg_X_means = means * np.dot(responsibility, X) / denominator
-    return avg_X2 - 2 * avg_X_means + avg_means2 + reg_covar
+    membership = np.sum(responsibility, axis=1)
 
+    I = np.eye(D)
+    cov = np.empty((M, D))
+    for m, (mu, rm, nm) in enumerate(zip(mean, responsibility, membership)):
 
+        diff = y - mu
+        denominator = nm - 1 if nm > 1 else nm
+
+        cov[m] = np.dot(rm, diff**2) / denominator + covariance_regularization
+
+    return cov
+
+    
 
 
 def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
@@ -729,44 +744,21 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
         new_mu[m] = np.sum(w_responsibility[m] * y.T, axis=1) \
                   / w_effective_membership[m]
 
-        # Here we safely estimate the covariance matrix,
-        # in case the effective membership is near or less than 1
-        denom = w_effective_membership[m]
-        denom = denom - 1 if denom > 1 else denom
-        offset = y - new_mu[m]
+    new_cov = _estimate_covariance_matrix(y, responsibility, new_mu,
+        kwargs["covariance_type"], kwargs["covariance_regularization"])
 
-        # For diag:
-        #new_cov[m] = _estimate_gaussian_covariance_diag(w_responsibility,
-        #    y, w_effective_membership, new_mu, kwargs.get("covariance_regularization", 0))
-
-        # For full:
-        new_cov[m] = np.dot(w_responsibility[m] * offset.T, offset) / denom
-        new_cov[m] = new_cov[m] + kwargs.get("covariance_regularization", 0) * np.eye(D)
-
-        assert np.linalg.det(new_cov[m]) > 0
-        assert np.all(np.diag(new_cov[m]) > 0)
-        
     state = (new_mu, new_cov, new_weight)
 
     assert np.all(np.isfinite(new_mu))
     assert np.all(np.isfinite(new_cov))
     assert np.all(np.isfinite(new_weight))
 
-    # Check for singular matrix.
-    callback = kwargs.get("callback", None)
-    if callback is not None:
-        try:
-            callback(state, "maximization")
-        
-        except:
-            logger.exception("Exception when running callback:")
-            raise
-
     return state 
 
 
-def _expectation_maximization(y, mu, cov, weight, responsibility=None,
-    covariance_type="full", threshold=1e-5, max_em_iterations=10000, **kwargs):
+
+
+def _expectation_maximization(y, mu, cov, weight, responsibility=None, **kwargs):
     r"""
     Run the expectation-maximization algorithm on the current set of
     multivariate Gaussian mixtures.
@@ -815,10 +807,10 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None,
 
     M = weight.size
     N, D = y.shape
-    N_component_pars = _parameters_per_component(D, covariance_type)
     
     # Calculate log-likelihood and initial expectation step.
-    _init_responsibility, ll, dl = _expectation(y, mu, cov, weight, N_component_pars)
+    _init_responsibility, ll, dl = _expectation(y, mu, cov, weight, **kwargs)
+
     if responsibility is None:
         responsibility = _init_responsibility
 
@@ -833,7 +825,7 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None,
 
         # Run the expectation step.
         responsibility, ll, dl \
-            = _expectation(y, mu, cov, weight, N_component_pars, **kwargs)
+            = _expectation(y, mu, cov, weight, **kwargs)
 
         # Check for convergence.
         prev_ll, prev_dl = ll_dl[-1]
@@ -843,20 +835,31 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None,
 
         assert np.isfinite(relative_delta_message_length)
 
-        if relative_delta_message_length <= threshold \
-        or iterations >= max_em_iterations:
+        if relative_delta_message_length <= kwargs["threshold"] \
+        or iterations >= kwargs["max_em_iterations"]:
             break
 
-    meta = dict(warnflag=iterations >= max_em_iterations, log_likelihood=ll)
+    meta = dict(warnflag=iterations >= kwargs["max_em_iterations"], log_likelihood=ll)
     if meta["warnflag"]:
         logger.warn("Maximum number of E-M iterations reached ({}) {}".format(
-            max_em_iterations, kwargs.get("_warn_context", "")))
+            kwargs["max_em_iterations"], kwargs.get("_warn_context", "")))
 
     return (mu, cov, weight, responsibility, meta, dl)
 
 
-def split_component(y, mu, cov, weight, responsibility, index, 
-    covariance_type="full", **kwargs):
+def _svd(covariance, covariance_type):
+
+    if covariance_type == "full":
+        return np.linalg.svd(covariance)
+
+    elif covariance_type == "diag":
+        return np.linalg.svd(covariance * np.eye(covariance.size))
+
+    else:
+        raise ValueError("unknown covariance type")
+
+
+def split_component(y, mu, cov, weight, responsibility, index, **kwargs):
     r"""
     Split a component from the current mixture and determine the new optimal
     state.
@@ -906,10 +909,8 @@ def split_component(y, mu, cov, weight, responsibility, index,
     
     # Compute the direction of maximum variance of the parent component, and
     # locate two points which are one standard deviation away on either side.
-    if covariance_type == "diag":
-        U, S, V = np.linalg.svd(np.array([_ * np.eye(D) for _ in cov]))
-    elif covariance_type == "full":
-        U, S, V = np.linalg.svd(cov[index])
+    U, S, V = _svd(cov[index], kwargs["covariance_type"])
+
     child_mu = mu[index] - np.vstack([+V[0], -V[0]]) * S[0]**0.5
 
     assert np.all(np.isfinite(child_mu))
@@ -925,17 +926,10 @@ def split_component(y, mu, cov, weight, responsibility, index,
     child_responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
 
     # Calculate the child covariance matrices.
-    child_cov = np.zeros((2, D, D))
-    child_effective_membership = np.sum(child_responsibility, axis=1)
+    child_cov = _estimate_covariance_matrix(y, child_responsibility, child_mu,
+        kwargs["covariance_type"], kwargs["covariance_regularization"])
 
-    for k in (0, 1):
-        offset = y - child_mu[k]
-        denom = child_effective_membership[k] - 1
-        denom = denom if denom > 0 else denom + 1
-        child_cov[k] = np.dot(child_responsibility[k] * offset.T, offset) \
-                     / denom
-        child_cov[k] = child_cov[k] + kwargs.get("covariance_regularization", 0) * np.eye(D)
-
+    child_effective_membership = np.sum(child_responsibility, axis=1)    
     child_weight = child_effective_membership.T/child_effective_membership.sum()
 
     # We will need these later.
@@ -979,28 +973,25 @@ def split_component(y, mu, cov, weight, responsibility, index,
         cov = np.vstack([cov, [child_cov[1]]])
         cov[index] = child_cov[0]
 
-        mu, cov, weight, responsibility, meta, dl = _expectation_maximization(
-            y, mu, cov, weight, responsibility, 
-            covariance_type=covariance_type, **kwargs)
+        mu, cov, weight, responsibility, meta, ml = _expectation_maximization(
+            y, mu, cov, weight, responsibility, **kwargs)
 
 
     else:
         # Simple case where we don't have to re-run E-M because there was only
         # one component to split.
-        child_mu, child_cov, child_weight, child_responsibility, meta, dl = \
+        child_mu, child_cov, child_weight, child_responsibility, meta, ml = \
             _expectation_maximization(y, child_mu, child_cov, child_weight, 
             responsibility=child_responsibility, 
-            parent_responsibility=parent_responsibility,
-            covariance_type=covariance_type, **kwargs)
+            parent_responsibility=parent_responsibility, **kwargs)
 
         mu, cov, weight, responsibility \
             = (child_mu, child_cov, child_weight, child_responsibility)
 
-    return (mu, cov, weight, responsibility, meta, dl)
+    return (mu, cov, weight, responsibility, meta, ml)
 
 
-def delete_component(y, mu, cov, weight, responsibility, index, 
-    covariance_type="full", **kwargs):
+def delete_component(y, mu, cov, weight, responsibility, index, **kwargs):
     r"""
     Delete a component from the mixture, and return the new optimal state.
 
@@ -1064,11 +1055,10 @@ def delete_component(y, mu, cov, weight, responsibility, index,
 
     # Run expectation-maximizaton on the perturbed mixtures. 
     return _expectation_maximization(y, new_mu, new_cov, new_weight, 
-        new_responsibility, covariance_type=covariance_type, **kwargs)
+        new_responsibility, **kwargs)
 
 
-def merge_component(y, mu, cov, weight, responsibility, index, 
-    covariance_type="full", **kwargs):
+def merge_component(y, mu, cov, weight, responsibility, index, **kwargs):
     r"""
     Merge a component from the mixture with its "closest" component, as
     judged by the Kullback-Leibler distance.
@@ -1127,11 +1117,9 @@ def merge_component(y, mu, cov, weight, responsibility, index,
     effective_membership_k = np.sum(responsibility_k)
 
     mu_k = np.sum(responsibility_k * y.T, axis=1) / effective_membership_k
-
-    offset = y - mu_k
-    denom = effective_membership_k - 1
-    denom = denom if denom > 0 else denom + 1
-    cov_k = np.dot(responsibility_k * offset.T, offset) / denom
+    cov_k = _estimate_covariance_matrix(
+        y, np.atleast_2d(responsibility_k), np.atleast_2d(mu_k), 
+        kwargs["covariance_type"], kwargs["covariance_regularization"])
 
     # Delete the b-th component.
     del_index = np.max([a_index, b_index])
@@ -1149,5 +1137,4 @@ def merge_component(y, mu, cov, weight, responsibility, index,
 
     # Calculate log-likelihood.
     return _expectation_maximization(y, new_mu, new_cov, new_weight,
-        responsibility=new_responsibility, covariance_type=covariance_type,
-        **kwargs)
+        responsibility=new_responsibility,  **kwargs)
