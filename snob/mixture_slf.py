@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 class SLFGaussianMixture(object):
 
     r"""
-    Model data from (potentially) many multivariate Gaussian distributions
-    with a single (multivariate) latent factor.
+    Model data from a fixed number of multivariate Gaussian distributions with
+    a single (multivariate) latent factor.
 
     The latent factor and mixture parameters are iteratively updated using
     expectation-maximization, with minimum message length describing the cost
@@ -221,7 +221,7 @@ class SLFGaussianMixture(object):
             # Check for convergence.
             change = np.abs((results[-1] - results[-2])/results[-2])
             
-            logger.debug("E-M step {}: {} {}".format(
+            print("E-M step {}: {} {}".format(
                 iteration, results[-1], change))
 
             if change <= self.threshold \
@@ -299,7 +299,6 @@ class SLFGaussianMixture(object):
         else:
             b = (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
 
-
         for iteration in range(self.max_inner_iterations):
 
             # The iteration scheme is from Wallace & Freeman (1992)
@@ -313,8 +312,7 @@ class SLFGaussianMixture(object):
             b_sq = np.sum(b**2)
             if b_sq == 0:
                 raise NotImplementedError("a latent factor is not justified")
-                break
-
+                
             # Note: Step (c) of Wallace & Freeman (1992) suggest to compute
             #       Y as Y_{kj} = \frac{V_{kj}}{\sigma_{k}\sigma_{j}}, where
             #       V_{kj} is the kj entry of the correlation matrix, but that
@@ -352,6 +350,8 @@ class SLFGaussianMixture(object):
 
         return self.set_parameters(factor_loads, factor_scores, 
             specific_variances, means, weights)
+
+
 
 
 

@@ -5,7 +5,7 @@ from snob import mixture_slf as slf
 #y = np.loadtxt("cluster_abundances.txt")
 
 n_samples, n_features, n_clusters, rank = 1000, 50, 4, 1
-sigma = 0.5
+sigma = 0.1
 true_specific_variances = sigma**2 * np.ones((1, n_features))
 
 
