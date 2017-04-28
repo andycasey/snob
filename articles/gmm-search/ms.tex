@@ -1,0 +1,191 @@
+%% This document is part of the snob project
+%% Copyright 2017 the authors. All rights reserved.
+
+\documentclass{aastex61}
+
+\usepackage{bm}
+%\usepackage{boldsymbol}
+\usepackage{verbatim} % for \begin{comment}'ing out sections.
+
+% For revision history
+\IfFileExists{vc.tex}{\input{vc.tex}}{
+    \newcommand{\githash}{UNKNOWN}
+    \newcommand{\giturl}{UNKNOWN}}
+
+% Define commands
+\newcommand{\article}{\emph{Article}}
+\newcommand{\acronym}[1]{{\small{#1}}}
+\newcommand{\project}[1]{\textsl{#1}}
+
+% Surveys
+\newcommand{\apogee}{\acronym{APOGEE}}
+\newcommand{\ges}{\acronym{GES}}
+\newcommand{\hermes}{\acronym{HERMES}}
+\newcommand{\galah}{\acronym{GALAH}}
+\newcommand{\fourmost}{\acronym{4MOST}}
+\newcommand{\weave}{\acronym{WEAVE}}
+\newcommand{\gaia}{\project{Gaia}}
+
+% Common terms
+\newcommand{\vect}[1]{\boldsymbol{\mathbf{#1}}}
+
+\def\teff{T_{\rm eff}}
+\def\logg{\log{g}}
+
+% Have some maaaath.
+\def\infinity{\rotatebox{90}{8}}
+\def\veccov{\vect{C}}
+\def\vecmean{\vect{\mu}}
+\def\vectheta{\vect{\theta}}
+\def\weight{w}
+\def\weights{\vect{\weight}}
+\def\datum{y}
+\def\data{\vect{\datum}}
+\def\likelihood{\mathcal{L}}
+
+% Affiliation(s)
+\newcommand{\moca}{
+	\affil{School of Physics and Astronomy, Monash University, 
+		   Melbourne, Clayton VIC 3800, Australia}}
+\newcommand{\claytonfit}{
+	\affil{Faculty of Information Technology, Monash University,
+	       Melbourne, Clayton VIC 3800, Australia}}
+\newcommand{\caulfieldfit}{
+	\affil{Faculty of Information Technology, Monash University,
+		   Melbourne, Caulfield East VIC 3145, Australia}}
+
+
+
+\received{}
+\revised{}
+\accepted{}
+
+\submitjournal{TBD} % ApJ, MNRAS, PASA?
+
+\shorttitle{A search strategy for Gaussian mixtures using MML}
+\shortauthors{Casey et al.}
+
+\begin{document}
+
+\title{A search method for Gaussian mixtures using MML}
+
+\author{Aleti, Casey, Dowe, Lattanzio}
+ 
+\begin{abstract}
+
+\end{abstract}
+
+\keywords{}
+
+\section{Introduction} 
+\label{sec:introduction}
+
+
+There are $N$ data points each with $D$ dimensions, which are to be modelled
+by $K$ mixture of $D$-dimensional gaussian distributions, each with a relative
+weighting $\weight_k$ such that $\sum_{k=1}^{K}\weight_k = 1$. 
+The data have the same error value, $y_{err}$, in all $D$ dimensions, for all $N$ observations.
+
+The full expression for the message length of a
+given by,
+
+\begin{eqnarray}
+I_K & = & K\log{2} % I_k
+    + \frac{(K - 1)}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\log{w_k} - \log{|\Gamma(K)|} % I_w
+    + \mathcal{L}(\data|\vectheta) - DN\log{y_{err}} \\ % Likelihood \\
+  & + & \frac{1}{2}\sum_{k=1}^{K}\left[\frac{D(D+3)}{2}\log{{Nw_k}} - (D + 2)\log{|\veccov_k|} - D\log{2}\right] % I_t
+    - \frac{Q}{2}\log(2\pi) + \frac{\log{Q\pi}}{2} % lattice, minus the lattice of part 2
+\end{eqnarray}
+
+\noindent{}where $Q = \frac{1}{2}DK(D + 3) + K - 1$, the number of free parameters, and
+$\mathcal{L}$ is the log-likelihood of a multivariate gaussian distribution.
+
+Say we wanted to calculate whether another mixture was warranted. If another
+mixture were preferred then we would want:
+
+\begin{eqnarray}
+  \Delta{}I_{K+1} - I_{K} < 0
+\end{eqnarray}
+
+The expression is given as:
+\begin{eqnarray}
+\Delta{I_{K+1} - I_K} & = & (K + 1)\log{2} - K\log{2} \\ % I_k^(new) - %I_k^(old)
+  &&+ \frac{(K)}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K+1}\log{w_k}^{(new)} - \log{|\Gamma(K+1)|} \\ % I_w^(new)
+  &&- \frac{(K - 1)}{2}\log{N} + \frac{1}{2}\sum_{k=1}^{K}\log{w_k} + \log{|\Gamma(K)|}\\ % I_w^(old)
+  &&+ \mathcal{L}^{(new)} - DN\log{y_{err}} \\ % Likelihood (new)\\
+  &&- \mathcal{L}^{(old)} + DN\log{y_{err}} \\ % Likelihood (old) \\
+  &&+ \frac{1}{2}\sum_{k=1}^{K+1(new)}\left[\frac{D(D+3)}{2}\log{{Nw_k}} - (D + 2)\log{|\veccov_k|} - D\log{2}\right] \\ % I_t^(new)
+  &&- \frac{1}{2}\sum_{k=1}^{K(old)}\left[\frac{D(D+3)}{2}\log{{Nw_k}} - (D + 2)\log{|\veccov_k|} - D\log{2}\right] \\ % I_t^(old)
+  &&- \frac{Q^{(new)}}{2}\log(2\pi) + \frac{\log{Q^{(new)}\pi}}{2} \\ % lattice, minus the lattice of part 2
+  &&+ \frac{Q^{(old)}}{2}\log(2\pi) - \frac{\log{Q^{(old)}\pi}}{2} % lattice, minus the lattice of part 2
+\end{eqnarray}
+
+\noindent{}By making use of $\log{\Gamma(K)} - \log{\Gamma(K + 1)} = -\log{K}$ and re-arranging the expression:
+
+\begin{eqnarray}
+\Delta{}I_{K+1} - I_K &=& \log{2} % \Delta{}I_k
+    + \frac{1}{2}\log{N} - \log{K} - \frac{1}{2}\left(\sum_{k=1}^{K+1}\log{w_k^{(new)}} - \sum_{k=1}^{K}\log{w_k^{(old)}}\right) \nonumber \\ % \Delta{}I_w
+&& + \mathcal{L}^{(new)} - \mathcal{L}^{(old)} \nonumber \\ % likelihood
+&& + \frac{1}{2}\left[\frac{D(D+3)}{2}\left(\sum_{k=1}^{K+1}\log{Nw_k^{(new)} - \sum_{k=1}^{K+1}\log{Nw_k^{(old)}}} \right) - \left(D+2\right)\left(\sum_{k=1}^{K+1}\log{|\veccov_k|^{(new)}} - \sum_{k=1}^{K+1}\log{|\veccov_k|^{(old)}}\right)\right] \nonumber \\
+&& + \frac{\log(2\pi)}{2}(Q^{(old)} - Q^{(new)}) + \frac{\pi}{2}\left(\log{Q^{(new)}} - \log{Q^{(old)}}\right)
+\label{eq:13}
+\end{eqnarray}
+
+Expanding the $Q$ terms:
+
+\begin{eqnarray}
+Q^{(old)} - Q^{(new)} &=& \frac{1}{2}DK(D + 3) + K - 1 - \frac{1}{2}D(K + 1)(D + 3) + (K + 1) - 1 \nonumber \\
+Q^{(old)} - Q^{(new)} &=& -\frac{1}{2}D(D+3) + 2K  - 1
+\label{eq:14}
+\end{eqnarray}
+
+\noindent{}And making use of the following logarithmic identities,
+\begin{eqnarray}
+  \log{Q^{(new)}} &=& \log{\left(\frac{1}{2}D(K+1)(D + 3) + K\right)} \nonumber \\
+                  &=& \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} + \log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} \\
+  \log{Q^{(old)}} &=& \log{\left(\frac{1}{2}DK(D + 3) + K - 1\right)} \nonumber \\
+                  &=& \log{\left(\frac{1}{2}DK(D + 3)\right)} + \log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)}
+\end{eqnarray}
+
+
+\noindent{}gives us,
+
+\begin{eqnarray}
+  \log{Q^{(new)}} - \log{Q^{(old)}} &=& \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} - \log{\left(\frac{1}{2}DK(D + 3)\right)} \nonumber \\
+                                    &&+ \log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} - \log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)} \quad .\\
+\end{eqnarray}
+The second row of terms can be ignored because they are very small (typically less than 1 bit). This is because as $K \rightarrow \infinity$, $2K/D(K+1)(D+3) \rightarrow 1$, thus $\log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} \rightarrow \log{2}$. Similarly as $D \rightarrow \infinity$, $2K/D(K+1)(D+3) \rightarrow 0$.
+
+As $K \rightarrow \infinity$ then $2(K-1)/DK(D+3) \rightarrow 1$ and as $D \rightarrow \infinity$ then $2(K-1)/DK(D+3) \rightarrow 0$ and thus $\log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)} \approx 0$.
+
+\noindent{}Ignoring these minor terms:
+
+\begin{eqnarray}
+  \log{Q^{(new)}} - \log{Q^{(old)}} &\approx& \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} - \log{\left(\frac{1}{2}DK(D + 3)\right)} \nonumber \\
+  \log{Q^{(new)}} - \log{Q^{(old)}} &\approx& \log{(K + 1)} - \log{K}
+  \label{eq:19}
+\end{eqnarray}
+
+\noindent{}Substituting Eqs. \ref{eq:19} and \ref{eq:14} into \ref{eq:13} yields:
+
+\begin{eqnarray}
+\Delta{}I_{K+1} - I_K &\approx& \log{2} % \Delta{}I_k
+    + \frac{1}{2}\log{N} - \log{K} - \frac{1}{2}\left(\sum_{k=1}^{K+1}\log{w_k^{(new)}} - \sum_{k=1}^{K}\log{w_k^{(old)}}\right) \nonumber \\ % \Delta{}I_w
+&& + \mathcal{L}^{(new)} - \mathcal{L}^{(old)} \nonumber \\ % likelihood
+&& + \frac{1}{2}\left[\frac{D(D+3)}{2}\left(\sum_{k=1}^{K+1}\log{Nw_k^{(new)} - \sum_{k=1}^{K+1}\log{Nw_k^{(old)}}} \right) - \left(D+2\right)\left(\sum_{k=1}^{K+1}\log{|\veccov_k|^{(new)}} - \sum_{k=1}^{K+1}\log{|\veccov_k|^{(old)}}\right)\right] \nonumber \\
+&& + \frac{\log(2\pi)}{2}(-\frac{1}{2}D(D+3) + 2K  - 1) + \frac{\pi}{2}\left(\log{(K + 1)} - \log{K}\right)
+\end{eqnarray}
+
+
+\begin{thebibliography}{}
+
+% Note: I include the DOI as a comment on the same line after every \bibitem
+%       entry. I do this in case I ever need to extract full bibstems for the
+%       bibliography, which can be done using this curl command and the DOI:
+
+%       curl -LH "Accept: application/x-bibtex" http://dx.doi.org/10.5555/12345678 
+
+%       If no DOI is available then I list the ADS identifier.
+\end{thebibliography}
+
+\end{document}
