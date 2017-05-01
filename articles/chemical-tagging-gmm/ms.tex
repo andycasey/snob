@@ -97,9 +97,10 @@ Chemical tagging seeks to identify co-natal stars by their present-day
 photospheric abundances, long after their phase space similarity is lost.
 In principle the detailed chemical abundances of a transformative number of
 stars could be used to reconstruct the evolution of the Milky Way, providing
-insight on supernovae yields, galactic dynamics (e.g., constraints on radial 
-mixing), the initial mass function, as well as the formation and destruction
-of star clusters. Some progress has been made towards chemical tagging, but 
+insight on supernovae yields, galactic dynamics, the initial mass function, 
+as well as the formation and destruction of star clusters. 
+
+Some progress has been made towards chemical tagging, but 
 here we argue that even the \emph{extent} of the problem has not been realised.
 We introduce the Real World problems associated with chemical tagging at scale,
 and describe how currently considered methods will inevitably fail even under
@@ -124,19 +125,16 @@ stars remains largely unchanged throughout a star's lifetime, whereas phase
 space similarity can be quickly washed out through dynamical interactions. 
 Indeed, although most stars are thought to form in clusters \citep{someone},
 only the most massive or isolated star clusters are able to survive the star
-formation process \citep{someone2}, leaving most clusters to become 
+formation process \citep[e.g.,][]{Lada_2010}, leaving most clusters to become 
 dynamically unbound after about 1~Gyr. 
 
 %Their signature of formation is locked up in their detailed chemical fingerprint
 
-
-
-%The Milky Way is our best laboratory for understanding galaxy formation and
-%evolution. 
-Making strong inferences about the Milky Way's formation and evolution from
-chemical tagging will require a transformative number of stars with precise
-abundances.
-Ground- and space-based surveys are poised to deliver those data this decade. 
+Despite the Milky Way being our best laboratory for understanding galaxy
+formation, a transformative number of stars with precise abundances will be
+required to chemically tag the Galaxy.
+Ground- and space-based surveys are poised to deliver those data in the coming
+decade. 
 The Apache Point Observatory Galactic Evolution Experiment 
 \citep[\apogee, e.g.,][]{apogee} and the Gaia-ESO survey 
 \citep[\ges;][]{Gilmore_2012,Randich_2013} are already delivering $10^5$ stars 
@@ -151,11 +149,40 @@ for $\approx$150 million stars.
 
 Chemical tagging is a simple idea, but with this volume of data it represents
 a formidable parameter estimation and model selection problem.
-Before reviewing the literature on chemical tagging, here we explicitly
-formulate the scope of the analysis problem.
+Given the difficulty of the problem, most chemical tagging studies have 
+focussed on addressing one \emph{aspect} of chemical tagging.
+For example, even the simplest applications of chemical tagging requires the
+identification of groups in the data, with stars being assigned to certain
+groups (a clustering problem), and to somehow chose the number of groups that
+are best represented by the data (a model selection problem).
+Previous works include definitions of L1-like metrics \citep{Mitschang_2014},
+where open clusters are used to define confidence intervals of similarity
+\citep{Mitschang_2013}, and whether similar stars constitute a group or not.
+Other studies have directly applied standard clustering algorithms,
+\citep[e.g., \acronym{DBSCAN}, $k$-means;][]{Blanco_Cuaresma_2015,Hogg_2016} 
+and fixed the number of clusters.
+Inferring the number of true clusters -- one of the principal goals of 
+chemical tagging -- was not attempted in these simplified experiments.
 
 
-\subsection{What do we want to infer from chemical abundances?}
+Other works have focussed [TODO EXPAND]:
+\begin{itemize}
+  \item Dimensionality of chemical abundance space (Ting et al).
+  \item Chemical homogenity of open clusters (Bovy, Da Silva)
+  \item Dopplegangers (Ness)
+  \item A single common latent factor, integrated over cosmic time (Bland-Hawthorn)
+\end{itemize}
+
+The aforementioned chemical tagging experiments have sought to address only 
+individual challenges associated with chemical tagging.
+These challenges are all related, and therefore addressing them separately
+will give results that ado not make use of all
+the information available. 
+Here, as we introduce the problem of chemical tagging, we list the inferences
+we wish to make from a large number of chemical abundances.
+
+
+\subsection{What's the goal of chemical tagging? What do we want to infer?}
 \label{sec:the-problem}
 
 
@@ -213,7 +240,7 @@ number of inferences we seek to make:
         factors that affect the data. 
         The surface chemical abundances of stars \emph{do change} over its
         lifetime, at least in part due to atomic diffusion, veiling, and 
-        thermohaling mixing.
+        thermohaling mixing. % TODO: Add Korn, others?
         Understanding and modelling these effects will be critical for 
         chemical tagging stars across all stellar ages and evolutionary states.
   \item The factor loads of stellar age- or parameter-dependent latent factors.
@@ -245,31 +272,7 @@ selection problems with non-convex\footnote{
 } objective functions.
 
 
-\subsection{Chemical tagging progress to date}
-\label{sec:literature-review}
 
-
-There has been substantial progress on chemical tagging in the last decade.
-Given the difficulty of the problem, most studies have opted to address one
-(or a few) of the challenges listed in Section~\ref{sec:the-problem}. 
-The most common issue addressed is group-finding (items 1-4). 
-Some works have sought to construct a similarity metric \citep{Mitschang}
-based on chemical abundances of undisrupted clusters. 
-Others have applied group-finding algorithms \citep{Hogg,Gregor}.
-
-% TODO
-- Dimensionality of chemical abundance space.
-
-- Chemical homogeneity.
-
-- Dopplegangers.
-
-
-The aforementioned chemical tagging experiments have sought to address only 
-individual challenges associated with chemical tagging.
-These challenges are all related, and therefore addressing them separately
-will yield results that are not self-consistent, and do not make use of all
-the information available.
 
 
 In this \article\ we will introduce a simple probabilistic approach to
@@ -325,11 +328,11 @@ We make the following explicit assumptions:
 \end{itemize}
 
 
-\noindent{}The probability density function $p$ for a multivariate normal 
+\noindent{}The probability density function $f$ for a multivariate normal 
 distribution with $D$ dimensions is given by
 
 \begin{equation}
-  p(\data|\vecmean,\veccov) 
+  f(\data|\vecmean,\veccov) 
       = \frac{1}{\sqrt{(2\pi)^d|\veccov|}}
         \exp{\left[-\frac{1}{2}(\data - \vecmean)^\intercal\veccov^{-1}(\data - \vecmean)\right]}
 \end{equation}
@@ -340,7 +343,7 @@ For a fixed number of $K$ multivariate Gaussian mixtures, the probability
 density function can be written as
 
 \begin{equation}
-  p(\data|\vectheta) = \sum_{k=1}^{K} \weight_k \, p(\data|\vectheta_k)
+  f(\data|\vectheta) = \sum_{k=1}^{K} \weight_k \, f(\data|\vectheta_k)
 \end{equation}
 
 \noindent{}where $\vectheta_k \equiv \{\vecmean_k, \veccov_k\}$,
@@ -350,7 +353,7 @@ mixture,\footnote{
   An alternative representation would be to include integer variables for each
   of the $N$ stars, where each variable represents the cluster which that star
   belongs.
-  These two models are mathematically identical \citep{Foreman_Mackey_2014},
+  These two models are mathematically identical \citep[e.g., see discussion in][]{Foreman_Mackey_2014},
   but the integer representation is highly dimensional and difficult to
   optimize.}
 and we require that $\sum_{k=1}^{K} \weight_k = 1$.
@@ -382,10 +385,10 @@ $I(E) = -\log_{2}P(E)$ bits of information\footnote{
 \end{equation}
 
 \noindent{}which states that the joint probability of the data $D$ and 
-hypothesis $H$, $P(H, D)$, is given by
+hypothesis $H$, $P(H,D)$, is given by
 
 \begin{equation}
-  P(H, D) = P(H) \cdot P(D|H) = P(D) \cdot P(H|D)
+  P(H,D) = P(H) \cdot P(D|H) = P(D) \cdot P(H|D)
 \end{equation}
 
 \noindent{}where $P(H)$ is the prior probability of the hypothesis $H$,
@@ -395,7 +398,7 @@ Specifically, \citet{Wallace_1968} derived the relationship between
 conditional probabilities in terms of optimal message lengths,
 
 \begin{equation}
-  I(H, D) = I(H) + I(D|H) = I(D) + I(H|D) \quad .
+  I(H,D) = I(H) + I(D|H) = I(D) + I(H|D) \quad .
   \label{eq:mml-wallace}
 \end{equation}
 
@@ -419,24 +422,25 @@ Calculating the length of the message is a non-trivial task, especially if the
 model is even reasonably complex.
 This makes the MML principle intractable (or uncomputable) in most cases, and
 forces us to make approximations when calculating the message length.
-\citet{Wallace_Freeman_1987} introduce a generalised scheme to estimate a
-vector of parameters $\vectheta$ of any distribution given some data, where
-the estimates $\vectheta$ that minimise the message length expression,
-
+Using a Taylor expansion, \citet{Wallace_1987} introduce a generalised 
+scheme to estimate a parameter vector $\vectheta$ (of any distribution), that
+minimises the message length expression:
 \begin{equation}
+\label{eq:message-length}
   I(\vectheta,\data) 
-    = \frac{p}{2}\log{q_p} - \log{\left(\frac{h(\vectheta)}{\sqrt{|\mathcal{F}(\vectheta)|}}\right)}
-      - \likelihood\left(\data|\vectheta\right) + \frac{p}{2}
-      \label{eq:message-length}
+    = \frac{Q}{2}\log\kappa{\left(Q\right)} 
+    - \log{\left(\frac{p(\vectheta)}{\sqrt{|\mathcal{F}(\vectheta)|}}\right)}
+    - \likelihood\left(\data|\vectheta\right) 
+    + \frac{Q}{2} \quad .
 \end{equation}
 
 
-\noindent{}is the MML estimate.
-Here $h(\vectheta)$ is the prior on the hypothesis, $p$ is the number of free
-parameters in the model, $q_p$ is the lattice quantization constant
-\citep[e.g.,][]{Conway_1984}, and $|\mathcal{F}\left(\vectheta\right)|$ is the
-determinant of the \emph{expected} Fisher information matrix (the second-order
-partial derivatives of the negative log-likelihood function 
+Here $p(\vectheta)$ is the prior on the hypothesis, $q$ is the number of free
+parameters in the model, $\kappa\left(Q\right)$ is a function to approximate the lattice
+quantisation constant for $Q$ free parameters \citep[e.g.,][]{Conway_1984}, 
+and $|\mathcal{F}\left(\vectheta\right)|$ is the determinant of the 
+\emph{expected} Fisher information matrix (the second-order partial 
+derivatives of the negative log-likelihood function 
 $-\likelihood(\data|\vectheta)$).
 
 
@@ -451,27 +455,29 @@ $-\likelihood(\data|\vectheta)$).
 %- Deep grounds in statistics, etc.
 
 
-The MML principle requires that the prior beliefs of the model to be fully 
-specified as part of the message. 
-We must explicitly specify our prior beliefs on the model parameters described
-in Section \ref{sec:model} in order to minimize the full message length.
-Indeed, the message must fully specify all components necessary for the
-receiver to be able to reconstruct the message.
-For the model specified in Section \ref{sec:model}, this requirement forces us
-to specify a number of components:
+The MML principle requires that the message fully specifies all components
+necessary for the receiver to be able to reconstruct the message, as well as
+our prior beliefs of the model.
+The message must include:
+
+%This requirement provides a familiar link to Bayesian statistics, and allows
+%one to think of MML as a form of a Bayesian optimization problem that is 
+%deeply grounded in information theory, with successful contributions in
+%economics, medicine, statistics, etc \citep{citations_needed}.
+
 
 \begin{enumerate}
   \item The number of Gaussian mixtures, $K$.
-  \item Encoding the relative weights $\weights$ of the Gaussian mixtures.
-  \item Encoding the component parameters $\vecmean$, $\veccov$ for all of
-        the Gaussian mixtures.
+  \item Encoding the relative weights $\weights$ of the $K$ Gaussian mixtures.
+  \item Encoding the component parameters $\vecmean$, $\veccov$ for all $K$
+        Gaussian mixtures.
   \item Encoding the data, given the model parameters.
-  \item The lattice quantization constant $q_p$ for the number of model
-        parameters $p$.
+  \item The lattice quantization constant $\kappa(q)$ for the number of model
+        parameters $q$.
 \end{enumerate}
 
 Some of these components require non-trivial derivations or approximations in
-order to calculate the length of the message required to encode the component.
+order to calculate the length of the optimal loseless encoding. 
 For this reason, we will consider the message length of each component in turn
 before returning to the full message length specified in Equation \ref{eq:message-length}.
 
@@ -482,7 +488,7 @@ before returning to the full message length specified in Equation \ref{eq:messag
 
 We assume that fewer mixtures are more likely than a larger number of mixtures.
 Specifically, we assume that $p(K) \propto 2^{-K}$, which implies that the
-message length required to encode $K$ is given by:
+optimal message length required to encode $K$ is given by:
 
 \begin{equation}
   I(K) = -\log{p(K)} = K\log{2} + \textrm{constant} \quad .
@@ -493,13 +499,16 @@ message length required to encode $K$ is given by:
 \label{sec:encoding-weights}
 
 We assume a uniform prior on the mixing weights $\bm{w}$, only requiring that
-$\sum_{k=1}^{K}w_k = 1$.
-% This implies the weights are parameters of a multinomial distribution.
-\citet{Boulton_1969} give the following expression for the message length 
-required to encode the weights,
+$\sum_{k=1}^{K}w_k = 1$. 
+This implies that the weights can be treated as parameters of a multinomial
+distribution, and the length of their optimally encoded message is given by
+\citet{Boulton_1969},
 
 \begin{equation}
-I(\weights) = \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k - \log{\Gamma{\left(K\right)}} \quad ,
+  I(\weights) 
+    = \frac{K - 1}{2}\log{N} 
+    - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k 
+    - \log{\Gamma{\left(K\right)}} \quad ,
 \end{equation}
 
 \noindent{}where $\Gamma(K)$ is the usual gamma function for positive integers
@@ -508,17 +517,14 @@ A useful extension of this work might be to impose a Dirchlet prior on the
 mixing weights $\weights$, or a distribution inspired by the stellar mass 
 function and/or an observed selection function.
 
-%This requirement provides a familiar link to Bayesian statistics, and allows
-%one to think of MML as a form of a Bayesian optimization problem that is 
-%deeply grounded in information theory, with successful contributions in
-%economics, medicine, statistics, etc \citep{citations_needed}.
-
 
 \subsubsection{Encoding the mixture parameters $\vecmean$ and $\veccov$}
 \label{sec:encoding-mixture-parameters}
 
-Recall that what we need to encode is both our priors on the model parameters
-and the determinant of the expected fisher information matrix.
+
+In order to properly encode the mixture parameters $\vecmean$ and $\veccov$
+for all $K$ mixtures, we must encode both our prior belief on those parameters,
+and the determinant of the expected Fisher information matrix.
 For the $k$-th mixture this becomes,
 
 \begin{equation}
@@ -529,42 +535,41 @@ For the $k$-th mixture this becomes,
 \noindent{}and for all mixtures:
 
 \begin{equation}
-I(\vecmean,\veccov) = -\sum_{k=1}^{K}\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\sum_{k=1}^{K}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}
+  I(\vecmean,\veccov) = -\sum_{k=1}^{K}\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\sum_{k=1}^{K}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}
+  \label{eq:10}
 \end{equation}
 
-This requires us to explicitly specify our priors on the parameters $\vecmean$
-and $\veccov$.
-We adopt an improper uniform prior of 
-$\mathcal{U}(\vecmean) = [-\infinity, \infinity]$ on all multivariate mean 
-abundances $\vecmean$ (in all $D$ dimensions).
-This prior has no impact on our inferences and becomes proper when it enters 
-the (accepted) posterior distribution. 
-We similarily could adopt a proper and large uniform prior on all mean 
-abundances of $\mathcal{U}(\vecmean) = [-12, 12]$ (24 orders of magnitude!) 
-and the result would be the same.
-
+We introduce our priors on $\vecmean$ and $\veccov$ before approximating the
+expected Fisher information matrix.
+We adopt a uniform prior of $\mathcal{U}(\vecmean) = [-\infinity, \infinity]$ 
+on all multivariate mean abundances $\vecmean$ (in all $D$ dimensions).
+We note that while this prior is improper, it becomes proper when it enters
+the (accepted) posterior distribution, and it has no impact on our inferences.
+Indeed, we similarly could adopt a (proper and) large uniform prior on all 
+mean abundances of $\mathcal{U}(\vecmean) = [-12, 12]$ (24 orders of magnitude!)
+and our inference would be the same.
 
 We adopt a congujate inverted Wishart prior for the covariance matrices in the
 individual mixtures. 
 The joint prior density for the parameters of a single
 mixture is given by the limiting form of the normal inverted-Wishart
-density \citep[e.g., Section 5.2.3 of ][]{Schafer_1990}:
+density \citep[e.g., Section 5.2.3 of ][]{Schafer_1997}:
 
 \begin{equation}
     p(\vecmean_k,\veccov_k) \propto |\veccov_k|^{\frac{D + 1}{2}} \quad .
+    \label{eq:prior-mean-cov}
 \end{equation}
 
 
-Computing the expected Fisher information $\mathcal{F}$ requires the second 
-order partial derivatives of the negative log-likelihood 
+Computing the expected Fisher information $\mathcal{F}(\vecmean_k,\veccov_k)$ 
+requires the second order partial derivatives of the negative log-likelihood 
 $-\likelihood(\data|\vecmean,\veccov)$.
 We approximate the determinant of the Fisher information 
 $|\mathcal{F}(\vecmean_k, \veccov_k)|$ as the product of 
 $|\mathcal{F}\left(\vecmean_k\right)|$ and $|\mathcal{F}\left(\veccov_k\right)|$ 
 \citep{Oliver_1996,Roberts_1998}. 
 We begin by taking second derivative of the log-likelihood function
-$\likelihood\left(\data|\vecmean,\veccov\right)$ for a multivariate Gaussian
-distribution,
+$\likelihood\left(\data|\vecmean,\veccov\right)$,
 
 \begin{equation}
   \likelihood\left(\data|\vecmean, \veccov\right) = 
@@ -579,45 +584,55 @@ distribution,
   & \frac{\delta^2\likelihood}{\delta\vecmean^2} = -N\veccov^{-1} \quad ,
 \end{eqnarray}
 
-\noindent{}and for a $d$-dimensional vector $\vecmean$ the Fisher information
+\noindent{}and for a $D$-dimensional vector $\vecmean$ the Fisher information
 matrix is:
 
 \begin{eqnarray}
-  |\mathcal{F}(\vecmean_k)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = N^d|\veccov|^{-1} \quad .
+  |\mathcal{F}(\vecmean_k)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = N^D|\veccov|^{-1} \quad .
+  \label{eq:approx-fisher-mean}
 \end{eqnarray}
 
 Computing the Fisher information of the covariance matrix 
-$|\mathcal{F}\left(\veccov\right)|$ is harder. 
-For a full covariance matrix with off-diagonal terms, the total number of free 
-parameters required is $d(d+1)/2$.
-\citep{Magnus_1988} derived an analytical expression:
+$|\mathcal{F}\left(\veccov\right)|$ is harder.
+Using theory of matrix derivatives based on matrix vectorization \citep{Dwyer_1967},
+\citet{Magnus_1988} derived the following analytical expression for the 
+determinant of the Fisher information for a covariance matrix
+$|\mathcal{F}\left(\veccov_k\right)|$,
 
-% Dwyer_1967, Bozdogan_1990? Drton_2009?
 % TODO: This derivation is a nightmare to find
 
 \begin{equation}
-  |\mathcal{F}\left(\veccov\right)| = N^\frac{d(d+1)}{2}2^{-d}|\veccov|^{-(d+1)}
+  |\mathcal{F}\left(\veccov_k\right)| = N^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)}
+  \label{eq:approx-fisher-cov}
 \end{equation}
 
-\noindent{}Giving the approximate determinant of the expected Fisher information 
-$|\mathcal{F}\left(\vecmean,\veccov\right)|$ as:
+\noindent{}where $D(D+1)/2$ arises from the number of free parameters in a
+covariance matrix with off-diagonal terms.
+Equations \ref{eq:approx-fisher-mean} and \ref{eq:approx-fisher-cov} allow us
+to approximate the determinant of the expected Fisher information matrix
+$|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|$ as:
 
 \begin{eqnarray}
-  |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & |\mathcal{F}\left(\vecmean\right)|\cdot|\mathcal{F}\left(\veccov\right)| \nonumber \\
-  |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & N^{d}|\veccov|^{-1}N^\frac{d(d+1)}{2}2^{-d}|\veccov|^{-(d+1)} \nonumber \\
-  |\mathcal{F}\left(\vecmean,\veccov\right)| & \approx & N^\frac{d(d+3)}{2}2^{-d}|\veccov|^{-(d+2)} \quad .
+  |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & |\mathcal{F}\left(\vecmean_k\right)|\cdot|\mathcal{F}\left(\veccov_k\right)| \nonumber \\
+  |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & N^{D}|\veccov_k|^{-1}N^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \nonumber \\
+  |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & N^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)} \quad .
+  \label{eq:fisher-mean-cov}
 \end{eqnarray}
 
-Thus for all $K$ mixtures, Equation \ref{eq:10} expands to:
+Thus for all $K$ mixtures, substituting Equations \ref{eq:prior-mean-cov} and 
+\ref{eq:fisher-mean-cov} into Equation \ref{eq:10} gives:
 
 \begin{eqnarray}
-I(\vecmean, \veccov) &=& -\sum_{k=1}^K\frac{D + 1}{2}\log{|\veccov_k|} 
-                         + \frac{1}{2}\sum_{k=1}^K\left[\frac{D(D+3)}{2}\log{N} - D\log{2} - (D + 2)\log{|\veccov_k|}\right] \nonumber \\
-I(\vecmean, \veccov) &=& -\sum_{k=1}^K\frac{D + 1}{2}\log{|\veccov_k|}
-                         + \frac{KD(D + 3)}{4}
-                         + \frac{D\log{2}}{2}
-                         - \frac{1}{2}\sum_{k=1}^K (D+2)\log{|\veccov_k|} \nonumber\\
-I(\vecmean, \veccov) &=& -\sum_{k=1}^K(D + 1)\log{|\veccov_k|} + \frac{1}{2}\left(\frac{KD(D + 3)}{2} + D\log{2}\right)
+I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\sum_{k=1}^{K}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|} \nonumber  \\
+I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{\left(|\veccov_k|^{\frac{D + 1}{2}}\right)}
+ + \frac{1}{2}\sum_{k=1}^{K}\log{\left(N^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)}\right)} \nonumber \\
+I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\frac{D + 1}{2}\log|\veccov_k|
+ + \frac{1}{2}\sum_{k=1}^{K}\left[\frac{D(D+3)}{2}\log{N} -D\log{2} -(D+2)\log|\veccov_k|\right] \nonumber \\
+I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\frac{D + 1}{2}\log|\veccov_k|
+ + \frac{1}{2}K\left[\frac{D\left(D+3\right)}{2}\log{N} - D\log{2}\right]
+ -\sum_{k=1}^{K}\frac{D+2}{2}\log|\veccov_k| \nonumber \\
+I(\vecmean,\veccov) &=& \frac{1}{2}\sum_{k=1}^{K}\log|\veccov_k|
+ + \frac{1}{2}K\left[\frac{D\left(D+3\right)}{2}\log{N} - D\log{2}\right] \quad .
 \end{eqnarray}
 
 
@@ -629,30 +644,73 @@ I(\vecmean, \veccov) &=& -\sum_{k=1}^K(D + 1)\log{|\veccov_k|} + \frac{1}{2}\lef
 Each datum can only be stated with a precision which is given by the accuracy
 of the measurement.
 If we assume homoskedastic noise properties for the observed data, and the
-precision that each elemental abundance can be measured is $\epsilon$, then
+precision that each elemental abundance can be measured is $\mathcal{E}$, then
 the \emph{probability} of a datum is given by 
-$\textrm{Pr}(\datum_n) = \epsilon^D\textrm{Pr}(\datum_i|\mathcal{M})$
+$\textrm{Pr}(\datum_n) = \mathcal{E}^D\textrm{Pr}(\datum_i|\mathcal{M})$
 where $\mathcal{M}$ represents the model and $\textrm{Pr}(\datum_i|\mathcal{M})$
 is the \emph{probability density}.
-Note that $\epsilon$ is a constant, and is only used to maintain validity 
+Note that $\mathcal{E}$ is a constant, and is only used to maintain validity 
 between \emph{probability} and \emph{probability density}.
-For these experiments we adopt $\epsilon = 0.01$, but note that the value of
-$\epsilon$ has no effect on our inferences.
+For these experiments we adopt $\mathcal{E} = 0.01$, but note that the value of
+$\mathcal{E}$ has no effect on our inferences.
 
 The length of the total encoding of a datum given the model is,
 \begin{equation}
-  I(\data_n) = -\log{\textrm{Pr}(\data_n)} = -D\log\epsilon - \log\sum_{k=1}^{K}w_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)
+  I(\data_n) = -\log{\textrm{Pr}(\data_n)} = -D\log\mathcal{E} - \log\sum_{k=1}^{K}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)
 \end{equation}
 
 \noindent{}and for the entire data:
 
-\begin{equation}
-  I(\data|\vectheta) = -ND\log\epsilon - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k)
-\end{equation}
+\begin{eqnarray}
+  I(\data|\vectheta) &=& -ND\log\mathcal{E} - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k) \quad .\\
+%  I(\data|\vectheta) &=& -ND\log\mathcal{E} - \sum_{k=1}^{K}\log{\weight_k} - \sum_{n=1}^{N}\sum_{k=1}^{K}f_k\left(\data_n|\vecmean_k,\veccov_k\right) \quad .
+\end{eqnarray}
 
 
 \subsubsection{Encoding the lattice constant}
+\label{sec:encoding-lattice-constant}
 
+The lattice quantisation constant arises from the approximation to the (so-called)
+strict MML, where parameters are quantised into intervals in high dimensional
+space.
+First we will calculate the total number of free parameters in our model.
+Recall that we assume our covariance matrices have non-zero off-diagonal terms,
+requiring $\frac{KD(D+1)}{2}$ parameters for all $K$ covariance matrices
+(where we implicitly assume $D > 1$).
+The $K$ $D$-dimensional vector means require a total of $KD$ parameters.
+Under the assumption $K > 1$, the $K$ relative weights $\weights$ only require
+$K - 1$ parameters because $\sum_{k=1}^{K}\weight_k = 1$.
+Therefore the total number of free parameters $Q$ is given by,
+
+\begin{eqnarray}
+  Q &=& \frac{KD(D+1)}{2} + KD + K - 1 \nonumber \\
+  Q &=& K\left[\frac{D\left(D+3\right)}{2} + 1\right] - 1 \quad .
+  \label{eq:q}
+\end{eqnarray}
+
+We use an approximation for the logarithm of the lattice constant
+\citep[see Sections 5.2.12 and 3.3.4 of ][]{Wallace_2005} where,
+
+\begin{eqnarray}
+    I(y) \approx - \log\frac{p(\theta')}{\sqrt{F(\theta')}} 
+                   - \log{f(y|\theta')}
+                   - (Q/2)\log{2\pi}
+                   + \frac{1}{2}\log{(\pi{}Q)}
+                   - 1
+\end{eqnarray}
+
+\noindent{}such that,
+\begin{eqnarray}
+  \log\kappa(Q) &=& \frac{\log{Q\pi}}{Q} - \log{2\pi} - 1
+\end{eqnarray}
+
+\noindent{}and the expected error on $\log\kappa(Q)$ is less than 0.1~nit.
+The $Q$ (lattice) terms in Equation \ref{eq:message-length} becomes:
+
+\begin{eqnarray}
+\frac{Q}{2}\left(\log\kappa\left(Q\right) + 1\right) &=& \frac{Q}{2}\left(\frac{\log{Q\pi}}{Q} - \log{2\pi} - 1 + 1\right) \nonumber \\
+\frac{Q}{2}\left(\log\kappa\left(Q\right) + 1\right) &=& \frac{1}{2}\left(\log{Q\pi} - Q\log{2\pi}\right) \quad .
+\end{eqnarray}
 
 
 \subsection{The Objective Function}
@@ -664,26 +722,39 @@ objective function to minimise the total message length, given any number of
 Gaussian mixtures $K$ and parameter estimates $\vectheta$:
 
 \begin{equation}
-% TODO:
-  I(\vectheta,\data) = I(K) + I(\weights) + \sum_{k=1}^{K}I(\vectheta_k) + I(\data|\vectheta) + \textrm{lattice} \quad .
+  I(\vectheta,\data) = I(K) + I(\weights) + \sum_{k=1}^{K}I(\vectheta_k) + I(\data|\vectheta) + \frac{1}{2}\left(\log{Q\pi} - Q\log{2\pi}\right)\quad .
 \end{equation}
 
-Substituting the expressions outlined in previous subsections, we arrive at:
+\noindent{}Substituting the expressions outlined in previous subsections 
+(except for $Q$, as per Equation \ref{eq:q}, which we leave unexpanded
+for brevity), we arrive at our complete objective function:
 
-\begin{equation}
-  % FULL EQUATION.
-  I(\vectheta,\data) = long
-\end{equation}
+\begin{eqnarray}
+  I(\vectheta,\data) &=&
+      K\log{2} % I(K)
+    + \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k - \log{\Gamma(K)} % I(\weights) 
+    + \frac{1}{2}\sum_{k=1}^{K}\log{|\veccov_k|} \nonumber \\ % 
+   &+&\frac{K}{2}\left[\frac{D(D+3)}{2}\log{N} - D\log{2}\right] % I(\vectheta_k) = I(\vecmean_k,\veccov_k)
+    - ND\log\mathcal{E} - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k) % I(\data|\vectheta)
+    + \frac{1}{2}\left(\log{Q\pi} - Q\log{2\pi}\right) \quad . % lattice
+    \label{eq:objective-function}
+\end{eqnarray}
 
-Note that our objective function includes the number of mixtures $K$, a
-discrete valued parameter. 
-Because $K$ is not continuous, this complicates our optimization procedure.
 
+Our objective function includes the number of mixtures, $K$, a discrete valued
+parameter.
+We seek the number of mixtures $K$ and the parameter estimates $\vectheta$
+that minimise our objective function (Eq. \ref{eq:objective-function}).
 
 Here we will outline our optimization procedure to minimise the message length
-when $K$ is known and fixed, before briefly describing our search strategy to
-move between trial values of $K$.
+when $K$ is fixed, before describing our search strategy to move between trial 
+values of $K$.
 
+[TODO]
+- Expectation maximization, using MML (unbiased) updates
+
+\subsection{The Search Strategy}
+\label{sec:search-strategy}
 
 
 \section{Experiments}
@@ -737,25 +808,55 @@ repository.
 
 \bibitem[Astropy Collaboration et al.(2013)]{Robitaille:2013} Astropy Collaboration, Robitaille, T.~P., Tollerud, E.~J., et al.\ 2013, \aap, 558, A33 % 10.1051/0004-6361/201322068
 
+\bibitem[Blanco-Cuaresma et al.(2015)]{Blanco_Cuaresma_2015} Blanco-Cuaresma, S., Soubiran, C., Heiter, U., et al.\ 2015, \aap, 577, A47 % 10.1051/0004-6361/201425232
+
+\bibitem[Boulton \& Wallace(1969)]{Boulton_1969} Boulton, D.~M. \& Wallace, C.~S.\ 1969, Journal of Theoretical Biology, 23, 269-278 
+
+\bibitem[Conway \& Sloane(1984)]{Conway_1984} Conway, J.~H. \& Sloane, N.~J.~A.\ 1984, Journal on Algebraic and Discrete Methods, 5, 3, 294-305 % 10.1137/0605031
+
 \bibitem[Dalton et al.(2012)]{weave} Dalton, G., Trager, S.~C., Abrams, D.~C., et al.\ 2012, \procspie, 8446, 84460P % 10.1117/12.925950
 
 \bibitem[de Jong et al.(2012)]{4most} de Jong, R.~S., Bellido-Tirado, O., Chiappini, C., et al.\ 2012, \procspie, 8446, 84460T % 10.1117/12.926239
 
 \bibitem[De Silva et al.(2015)]{DeSilva_2015} De Silva, G.~M., Freeman, K.~C., Bland-Hawthorn, J., et al.\ 2015, \mnras, 449, 2604 % 10.1093/mnras/stv327
 
+%Some applications of matrix derivatives in multivariate analysis.
+
+\bibitem[Dwyer (1967)]{Dwyer_1967} Dwyer, P.~S.\ 1967, Journal of the American Statistical Association, 62, 318, 607-625
+
+\bibitem[Foreman-Mackey(2014)]{Foreman_Mackey_2014} Foreman-Mackey, D.\ 2014, Blog Post: Mixture Models., Zenodo, https://doi.org/10.5281/zenodo.15856 % 10.5281/zenodo.15856
+
 \bibitem[Freeman \& Bland-Hawthorn(2002)]{Freeman_2002} Freeman, K., \& Bland-Hawthorn, J.\ 2002, \araa, 40, 487 % 10.1146/annurev.astro.40.060401.093840
 
 \bibitem[Gilmore et al.(2012)]{Gilmore_2012} Gilmore, G., Randich, S., Asplund, M., et al.\ 2012, The Messenger, 147, 25 % 2012Msngr.147...25G
 
+\bibitem[Hogg et al.(2016)]{Hogg_2016} Hogg, D.~W., Casey, A.~R., Ness, M., et al.\ 2016, \apj, 833, 262 % 10.3847/1538-4357/833/2/262
+
+\bibitem[Lada(2010)]{Lada_2010} Lada, C.~J.\ 2010, Philosophical Transactions of the Royal Society of London Series A, 368, 713 % 10.1098/rsta.2009.0264
+
 \bibitem[Majewski et al.(2015)]{apogee} Majewski, S.~R., Schiavon, R.~P., Frinchaboy, P.~M., et al.\ 2015, arXiv:1509.05420 % 2015arXiv150905420M
+
+\bibitem[Magnus \& Neudecker(1988)]{Magnus_1988} Magnus, J.~R. \& Neudecker, H.\ 1998, Matrix differential calculus with applications in statistics and econometrics. Wiley, New York.
+
+\bibitem[Mitschang et al.(2013)]{Mitschang_2013} Mitschang, A.~W., De Silva, G., Sharma, S., \& Zucker, D.~B.\ 2013, \mnras, 428, 2321 % 10.1093/mnras/sts194
+
+\bibitem[Mitschang et al.(2014)]{Mitschang_2014} Mitschang, A.~W., De Silva, G., Zucker, D.~B., et al.\ 2014, \mnras, 438, 2753  % 10.1093/mnras/stt2320
+
+\bibitem[Oliver et al.(1996)]{Oliver_1996} Oliver, J.~J., Baxter, R.~A., Wallace, C.~S.\ 1996, Unsupervised Learning using MML, Proceedings of the 13th International Conference on Machine Learning, Morgan Kaufmann, 364-372 
 
 \bibitem[Randich et al.(2013)]{Randich_2013} Randich, S., Gilmore, G., \& Gaia-ESO Consortium 2013, The Messenger, 154, 47 % 2013Msngr.154...47R
 
-\bibitem[Shannon (1948)]{Shannon_1948} Shannon, C.~E.\ 1948, Bell System Technical Journal, 27, 3 % 10.1002/j.1538-7305.1948.tb01338.x
+\bibitem[Roberts et al.(1998)]{Roberts_1998} Roberts, S., Husmeier, D., Rezek, I., Penny, W.\ 1998, Bayesian approaches to Gaussian mixture modeling. IEEE Transactions on Pattern Analysis and Machine Intelligence, 20, 11, 1133-1142
 
-\bibitem[Schafer (1997)]{Schafer_1997} Schafer, J.~L.\ 1997, Analysis of Incomplete Multivariate Data (CRC Press) % 10.1002/(SICI)1097-0258(20000415)19:7<1006::AID-SIM384>3.0.CO;2-T
+\bibitem[Shannon(1948)]{Shannon_1948} Shannon, C.~E.\ 1948, Bell System Technical Journal, 27, 3 % 10.1002/j.1538-7305.1948.tb01338.x
 
-\bibitem[Wallace \& Boulton (1968)]{Wallace_1968} Wallace, C.~S. \& Boulton, D.~M.\ 1968, The Computer Journal, 11, 2 %10.1093/comjnl/11.2.185
+\bibitem[Schafer(1997)]{Schafer_1997} Schafer, J.~L.\ 1997, Analysis of Incomplete Multivariate Data (CRC Press) % 10.1002/(SICI)1097-0258(20000415)19:7<1006::AID-SIM384>3.0.CO;2-T
+
+\bibitem[Wallace \& Boulton(1968)]{Wallace_1968} Wallace, C.~S. \& Boulton, D.~M.\ 1968, The Computer Journal, 11, 2 %10.1093/comjnl/11.2.185
+
+\bibitem[Wallace \& Freeman(1987)]{Wallace_1987} Wallace, C.~S. \& Freeman, P.~R.\ 1987, Journal of the Royal Statistical Society. Series B (Methodological), 49, 3, 240-265
+
+\bibitem[Wallace(2005)]{Wallace_2005} Wallace, C.~S.\ 2005, Statistical and inductive inference using minimum message length. Springer-Verlag, NJ, USA
 
 \end{thebibliography}
 
