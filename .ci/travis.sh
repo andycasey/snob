@@ -3,8 +3,8 @@
 # Build the paper(s)
 cd $TRAVIS_BUILD_DIR/articles/chemical-tagging-gmm
 make
-cd $TRAVIS_BUILD_DIR/articles/nips-2017
-make
+#cd $TRAVIS_BUILD_DIR/articles/nips-2017
+#make
 cd $TRAVIS_BUILD_DIR/articles/gmm-search
 make
 
