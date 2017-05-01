@@ -1,11 +1,11 @@
 #!/bin/bash -x
 
 # Build the paper(s)
-cd articles/chemical-tagging-gmm
+cd $TRAVIS_BUILD_DIR/articles/chemical-tagging-gmm
 make
-cd articles/nips-2017
+cd $TRAVIS_BUILD_DIR/articles/nips-2017
 make
-cd articles/gmm-search
+cd $TRAVIS_BUILD_DIR/articles/gmm-search
 make
 
 # Push to GitHub
