@@ -4,12 +4,12 @@ from snob import mixture_slf as slf
 
 #y = np.loadtxt("cluster_abundances.txt")
 
-n_samples, n_features, n_clusters, rank = 1000, 50, 4, 1
-sigma = 0.1
-true_specific_variances = sigma**2 * np.ones((1, n_features))
+n_samples, n_features, n_clusters, rank = 1000, 50, 3, 1
+sigma = 1
+true_homo_specific_variances = sigma**2 * np.ones((1, n_features))
 
 
-rng = np.random.RandomState(100)
+rng = np.random.RandomState(321)
 
 U, _, _ = np.linalg.svd(rng.randn(n_features, n_features))
 true_factor_loads = U[:, :rank].T
@@ -31,7 +31,7 @@ X_homo = X + sigma * bar
 # Adding heteroscedastic noise
 sigmas = sigma * rng.rand(n_features) + sigma / 2.
 X_hetero = X + rng.randn(n_samples, n_features) * sigmas
-
+true_hetero_specific_variances = sigmas**2
 
 #y = np.atleast_2d(np.loadtxt("coffee_example.txt")).T
 
@@ -42,22 +42,25 @@ model = slf.SLFGaussianMixture(n_clusters)
 #model.true_factor_loads = true_factor_loads
 #model.true_means = true_means
 #model.true_specific_variances = true_specific_variances
-model.fit(X_homo)
+model.fit(X_hetero)
 
 #model.initialize_parameters(X_homo)
 
-fig, ax = plt.subplots()
-ax.scatter(true_factor_loads, model.factor_loads)
+def scatter_common(x, y, title=None):
+    fig, ax = plt.subplots()
+    ax.scatter(x,y)
+    ax.set_title(title or "")
+    limits = np.array([ax.get_xlim(), ax.get_ylim()])
+    limits = (limits.min(), limits.max())
+    ax.plot(limits, limits, c="#666666", linestyle=":", linewidth=0.5, zorder=-1)
+    ax.set_xlim(limits)
+    ax.set_ylim(limits)
+    
+    return fig
 
-fig, ax = plt.subplots()
-ax.scatter(true_factor_scores, model.factor_scores)
-
-
-fig, ax = plt.subplots()
-ax.scatter(true_specific_variances, model.specific_variances)
-
-
-fig, ax = plt.subplots()
+scatter_common(true_factor_loads, model.factor_loads, "factor loads")
+scatter_common(true_factor_scores, model.factor_scores, "factor scores")
+scatter_common(true_hetero_specific_variances, model.specific_variances, "specific variances")
 
 # means
 # This one is tricky because the indices are not necessarily the same.
@@ -71,7 +74,9 @@ assert len(idx) == len(set(idx))
 
 true = true_means.flatten()
 inferred = model._means[idx].flatten()
-ax.scatter(true, inferred)
+
+scatter_common(true, inferred, "means")
+
 
 # Plot some data...
 
