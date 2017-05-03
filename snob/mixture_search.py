@@ -18,6 +18,16 @@ from collections import defaultdict
 logger = logging.getLogger(__name__)
 
 
+# OK,. let's see if we can estimate the learning rate \gamma
+def _evaluate_gaussian(y, mu, cov):
+   N, D = y.shape
+   Cinv = np.linalg.inv(cov)
+   scale = 1.0/np.sqrt((2*np.pi)**D * np.linalg.det(cov))#
+   #Cinv**(-0.5)
+   d = y - mu
+   return scale * np.exp(-0.5 * np.sum(d.T * np.dot(Cinv, d.T), axis=0))
+
+
 class GaussianMixture(object):
 
     r"""
@@ -97,7 +107,127 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
 
-    def fit(self, y, **kwargs):
+    def search(self, y, max_components, **kwargs):
+
+
+        kwds = dict(
+            threshold=self._threshold, 
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self.covariance_type, 
+            covariance_regularization=self._covariance_regularization)
+
+        # Initialize the mixture.
+        mu, cov, weight = _initialize(y, **kwds)
+
+        N, D = y.shape
+        iterations = 1
+        
+        R, ll, b_ml = _expectation(y, mu, cov, weight, **kwds)
+        ll_dl = [(ll, b_ml)]
+        # Do E-M on this initial component.
+        """
+        mu, cov, weight, R, meta, dl \
+            = _expectation_maximization(y, mu, cov, weight, responsibility=R, 
+                **kwds)
+
+        R, ll, b_ml = _expectation(y, mu, cov, weight, **kwds)
+        print(1, b_ml)
+
+        entries = [[1, b_ml]]
+        """
+        entries = []
+        message_length = b_ml
+        ll = -ll
+
+        bar = []
+
+        Q = lambda K: (0.5 * D * (D + 3) * K) + (K - 1)
+
+        while True:
+
+            K = weight.size
+            if K >= max_components: break
+            best_perturbations = defaultdict(lambda: [np.inf])
+            
+
+            foo = weight * np.vstack([
+                _evaluate_gaussian(y, mu[k], cov[k]) for k in range(K)]).T
+
+
+            _, old_ll = responsibility_matrix(y, mu, cov, weight, full_output=True, **kwds)    
+
+            # Split all components.
+            for k in range(K):
+                p = split_component(y, mu, cov, weight, R, k, **kwds)
+
+                # With each perturbation, calculate gamma.
+                p_mu, p_cov, p_weight, p_R, p_meta, p_ml = p
+                """
+                gamma = K * foo.sum() * (p_ml - b_ml - (
+                    np.log(2) + np.log(N)/2.0 - np.log(K) \
+                    - 0.5 * (np.sum(np.log(p_weight)) - np.sum(np.log(weight))) \
+                    - D * np.log(2)/2.0 + D * (D+3)/4.0 * (np.log(N) + np.sum(np.log(p_weight)) - np.sum(np.log(weight))) \
+                    - (D + 2)/2.0 * (np.sum(np.log(np.linalg.det(p_cov))) - np.sum(np.log(np.linalg.det(cov)))) \
+                    + 0.25 * (2 * np.log(Q(K+1)/Q(K)) - (D * (D+3) +2) * np.log(2*np.pi))
+                    ))
+
+                print("Gamma", K, k, gamma)
+                """
+                _, new_ll = responsibility_matrix(y, p_mu, p_cov, p_weight,
+                    full_output=True, **kwds)
+
+                #gamma2 = K * np.sum(foo.T * (old_ll - new_ll))
+                gamma2 = K * np.sum(np.sum(foo, axis=1) * (old_ll - new_ll))
+                print("gamma_in_prog", K, k, gamma2)
+                """
+                gamma2 = (K + 1) * np.sum(foo) * (p_ml - b_ml - (
+                    np.log(2) + np.log(N)/2.0 - np.log(K) \
+                    - 0.5 * (np.sum(np.log(p_weight)) - np.sum(np.log(weight))) \
+                    - D * np.log(2)/2.0 + D * (D+3)/4.0 * (np.log(N) + np.sum(np.log(p_weight)) - np.sum(np.log(weight))) \
+                    - (D + 2)/2.0 * (np.sum(np.log(np.linalg.det(p_cov))) - np.sum(np.log(np.linalg.det(cov)))) \
+                    + 0.25 * (2 * np.log(Q(K+1)/Q(K)) - (D * (D+3) +2) * np.log(2*np.pi))
+                    ))
+                """
+                #print("MYGAMMA", K, k, gamma2)
+
+                
+                # Keep best component
+                if p[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [k, gamma2] + list(p)
+
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_k, b_gamma, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
+
+            # Predict the message length of the K + 1 mixture.
+            print("GAMMA", K, b_k, b_gamma)
+
+
+            ll = -b_meta["log_likelihood"]
+
+
+
+            # Predict the message length of the next component.
+            print("I predict next mixture will have: {}".format(b_ml + b_gamma))
+
+            iterations += 1
+            mu, cov, weight, R = (b_mu, b_cov, b_weight, b_R)
+
+            print(weight.size, message_length)
+            entries.append([weight.size, message_length])
+
+            if message_length > b_ml:
+                message_length = b_ml
+            else:
+                #break
+                print("CONTINUE ANYWAYS")
+                
+        entries = np.array(entries)
+        bar = np.array(bar)
+
+        raise a
+
+
+    def fit(self, y, num_components=None, **kwargs):
         r"""
         Minimize the message length of a mixture of Gaussians, 
         using our own search algorithm.
@@ -126,18 +256,39 @@ class GaussianMixture(object):
         R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
         ll_dl = [(ll, message_length)]
 
-
         # Do E-M on this initial component.
         mu, cov, weight, responsibility, meta, dl \
             = _expectation_maximization(y, mu, cov, weight, responsibility=R, 
                 **kwds)
 
+
+        _, log_likelihood = responsibility_matrix(
+            y, mu, cov, weight, full_output=True, **kwds)
+        nll = -np.sum(log_likelihood)
+        I, I_full = _message_length(y, mu, cov, weight, responsibility, nll, full_output=True, **kwds)
+        meta.update(message_length=I, message_length_meta=I_full)
+
+        if num_components == 1:
+            return (mu, cov, weight, meta)
+        
         # Estimate whether we should introduce another mixture.
 
-        
-        # Split it.
-        mu2, cov2, weight2, responsibility2, meta2, dl2 \
-            = split_component(y, mu, cov, weight, responsibility, 0, **kwds)
+        if num_components == 2:
+            # Split it.
+            mu, cov, weight, responsibility, meta, dl \
+                = split_component(y, mu, cov, weight, responsibility, 0, **kwds)
+
+            _, log_likelihood = responsibility_matrix(
+                y, mu, cov, weight, full_output=True, **kwds)
+            nll = -np.sum(log_likelihood)
+            I, I_full = _message_length(y, mu, cov, weight, responsibility, nll, full_output=True, **kwds)
+            meta.update(message_length=I, message_length_meta=I_full)
+
+            return (mu, cov, weight, meta)
+
+
+        raise a
+
 
         mu3, cov3, weight3, responsibility3, meta3, dl3 \
             = split_component(y, mu2, cov2, weight2, responsibility2, 1, **kwds)
@@ -434,7 +585,7 @@ def log_kappa(D):
 
 
 def _message_length(y, mu, cov, weight, responsibility, nll,
-    covariance_type, eps=0.10, dofail=False, **kwargs):
+    covariance_type, eps=0.10, dofail=False, full_output=False, **kwargs):
 
     # THIS IS SO BAD
 
@@ -552,6 +703,10 @@ def _message_length(y, mu, cov, weight, responsibility, nll,
         print(part1, part2)
 
         raise a
+
+    if full_output:
+        return (I, dict(I_m=I_m, I_w=I_w, log_F_m=log_F_m, nll=nll, I_l=Il, I_t=I_t,
+            lattice=lattice, part1=part1, part2=part2))
 
     return I
 
