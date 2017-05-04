@@ -13,6 +13,7 @@ __all__ = [
 import logging
 import numpy as np
 import scipy
+import scipy.optimize as op
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,221 @@ def _evaluate_gaussian(y, mu, cov):
    #Cinv**(-0.5)
    d = y - mu
    return scale * np.exp(-0.5 * np.sum(d.T * np.dot(Cinv, d.T), axis=0))
+
+
+def _total_parameters(K, D):
+    r"""
+    Return the total number of model parameters :math:`Q`, if a full 
+    covariance matrix structure is assumed.
+
+    .. math:
+
+        Q = \frac{K}{2}\left[D(D+3) + 2\right] - 1
+
+
+    :param K:
+        The number of Gaussian mixtures.
+
+    :param D:
+        The dimensionality of the data.
+
+    :returns:
+        The total number of model parameters, :math:`Q`.
+    """
+    return (0.5 * D * (D + 3) * K) + (K - 1)
+
+
+def _generator_for_approximate_log_likelihood_improvement(K, log_likelihood,
+    normalization_factor, *log_likelihoods_of_sequentially_increasing_mixtures):
+    
+    x = np.arange(K, K + len(log_likelihoods_of_sequentially_increasing_mixtures))
+    ll = np.hstack([log_likelihood, *log_likelihoods_of_sequentially_increasing_mixtures])
+    y = np.diff(ll) / normalization_factor
+
+    functions = {
+        1: lambda x, *p: p[0] / np.exp(x),
+        2: lambda x, *p: p[0] / np.exp(p[1] * x),
+        3: lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
+    }
+
+    foo = False
+    if x.size > 3:
+        #x = x[1:]
+        #y = y[1:]
+        foo = True
+
+    p_opt_ = []
+    for d in np.arange(1, 1 + x.size)[::-1]:
+
+        cost_function = functions.get(d, functions[3])
+        p0 = np.ones(d)
+
+        try:
+            p_opt, p_cov = op.curve_fit(cost_function, x, y, p0=p0)
+        except:
+            assert d > 1
+            continue
+        else:
+            p_opt_.append(p_opt)
+            break
+
+    p_opt = p_opt_.pop(0)
+    d = p_opt.size
+    cost_function = functions.get(d, functions[3])
+
+    generating_function = lambda target_K: log_likelihood \
+        + cost_function(np.arange(1, target_K), *p_opt).sum() * normalization_factor
+
+    if foo and x.size > 10:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.scatter(np.arange(ll.size) + 1, ll)
+        ax.plot(np.arange(ll.size) + 1, [generating_function(_) for _ in np.arange(ll.size) + 1], c='r')
+        raise a
+
+    return generating_function
+
+
+
+def _approximate_log_likelihood_improvement(y, mu, cov, weight, 
+    log_likelihood, *log_likelihoods_of_sequentially_increasing_mixtures):
+    """
+    Return a function that will approximate the log-likelihood value for a
+    given target number of mixtures.
+    """
+
+    # Evaluate the current mixture.
+    K = weight.size
+    evaluate_f1 = np.sum(weight * np.vstack(
+        [_evaluate_gaussian(y, mu[k], cov[k]) for k in range(K)]).T)
+
+    x = np.arange(K, K + len(log_likelihoods_of_sequentially_increasing_mixtures))
+    ll = np.hstack([log_likelihood, log_likelihoods_of_sequentially_increasing_mixtures])
+    y = np.diff(ll) / evaluate_f1
+
+    d = x.size
+    functions = {
+        1: lambda x, *p: p[0] / np.exp(x),
+        2: lambda x, *p: p[0] / np.exp(p[1] * x),
+        3: lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
+    }
+    cost_function = functions.get(d, functions[3])
+    p0 = np.ones(d)
+
+    p_opt, p_cov = op.curve_fit(cost_function, x, y, p0=p0)
+    
+    # Now generate the function to estimate the log-likelihood of the K-th
+    # mixture.
+    generating_function = lambda K: log_likelihood + cost_function(np.arange(1, K-1), *p_opt).sum() * evaluate_f1
+
+    return generating_function
+
+
+
+def _approximate_sum_log_weights(target_K):
+    r"""
+    Return an approximate expectation of the function:
+
+    .. math:
+
+        \sum_{k=1}^{K}\log{w_k}
+
+    Where :math:`K` is the number of mixtures, and :math:`w` is a multinomial
+    distribution. The approximating function is:
+
+    .. math:
+
+        \sum_{k=1}^{K}\log{w_k} \approx -K\log{K}
+
+    :param target_K:
+        The number of target Gaussian mixtures.
+    """
+
+    # TODO: Return a variance on this expectation.
+    return -target_K * np.log(target_K)
+
+
+def _approximate_bound_sum_log_determinate_covariances(target_K, 
+    covariance_matrices, covariance_type):
+    r"""
+    Return an approximate expectation of the function:
+
+    .. math:
+
+        \sum_{k=1}^{K}\log{|\bm{C}_k|}
+
+    Where :math:`C_k` is the covariance matrix of the :math:`K`-th mixture.
+    A lower and upper bound is given for the approximation, which is based on
+    the current estimates of the covariance matrices. The determinants of
+    the target distribution are estimated as:
+
+    .. math:
+
+        |\bm{C}_k| = \frac{k_{current}}{k_{target}}\min\left(|C_k|\right)
+    
+    and the upper bound as:
+
+    .. math:
+
+        |\bm{C}_k| = \frac{k_{current}}{k_{target}}\max\left(|C_k|\right)
+
+    :param K:
+        The target number of Gaussian mixtures.
+    
+    :param covariance_matrices:
+        The current estimate of the covariance matrices.
+    
+    :param covariance_type:
+        The type of structure assumed for the covariance matrix.
+
+    :returns:
+        An estimated lower and upper bound on the sum of the logarithm of the
+        determinants of a :math:`K` Gaussian mixture.
+    """
+
+    # Get the current determinants.
+    current_K, D, _ = covariance_matrices.shape
+    assert covariance_type == "full" #TODO
+    assert target_K > current_K
+
+    current_det = np.linalg.det(covariance_matrices)
+
+    current_det_bounds = np.array([np.min(current_det), np.max(current_det)])
+    target_det_bounds = current_K/float(target_K) * current_det_bounds
+
+    return target_K * np.log(target_det_bounds)
+
+
+def _approximate_message_length_change(target_K, current_weights,
+    current_cov, current_log_likelihood, N, initial_ll, normalization_factor, optimized_mixture_lls):
+    r"""
+    Estimate the change in message length between the current mixture of 
+    Gaussians, and a target mixture.
+    """
+
+    func = _generator_for_approximate_log_likelihood_improvement(1, initial_ll,
+        normalization_factor, *np.hstack([optimized_mixture_lls, current_log_likelihood]))
+
+    current_K, D, _ = current_cov.shape
+    delta_K = target_K - current_K
+    assert delta_K > 0
+
+    # Calculate everything except the log likelihood.
+    delta_I = delta_K * (
+            (1 - D/2.0) * np.log(2) \
+            + 0.25 * (D * (D+3) + 2) * np.log(N/(2*np.pi))) \
+        + 0.5 * (D*(D+3)/2 - 1) * (_approximate_sum_log_weights(target_K) - np.sum(np.log(current_weights))) \
+        - np.sum([np.log(current_K + dk) for dk in range(delta_K)]) \
+        + 0.5 * np.log(_total_parameters(target_K, D)/float(_total_parameters(current_K, D))) \
+        + (D + 2)/2.0 * (
+            _approximate_bound_sum_log_determinate_covariances(target_K, current_cov, "full") \
+            - np.sum(np.log(np.linalg.det(current_cov)))) \
+        - func(target_K) + current_log_likelihood
+    # Generate a function.
+    print("PREDICTING TARGET {} FROM {}: {}".format(target_K, current_weights.size, delta_I))
+    return delta_I
+
+
 
 
 class GaussianMixture(object):
@@ -107,8 +323,10 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
 
-    def search(self, y, max_components, **kwargs):
-
+    def search(self, y, **kwargs):
+        r"""
+        Search for the number of components.
+        """
 
         kwds = dict(
             threshold=self._threshold, 
@@ -118,23 +336,54 @@ class GaussianMixture(object):
 
         # Initialize the mixture.
         mu, cov, weight = _initialize(y, **kwds)
+        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+                
+        # Evaluate the initial function.
+        initial_ll = ll.sum()
+        normalization_factor = 1.0/_evaluate_gaussian(y, mu[0], cov[0]).sum()
+
 
         N, D = y.shape
-        iterations = 1
-        
-        R, ll, b_ml = _expectation(y, mu, cov, weight, **kwds)
-        ll_dl = [(ll, b_ml)]
-        # Do E-M on this initial component.
-        """
-        mu, cov, weight, R, meta, dl \
-            = _expectation_maximization(y, mu, cov, weight, responsibility=R, 
-                **kwds)
 
-        R, ll, b_ml = _expectation(y, mu, cov, weight, **kwds)
-        print(1, b_ml)
+        # Split the component, run E-M, then approximate the change in the
+        # log-likelihood.
+        # TODO: We don't even need to run E-M.
+        optimized_mixture_lls = []
+        while True:
 
-        entries = [[1, b_ml]]
-        """
+            K = weight.size
+            best_perturbations = defaultdict(lambda: [np.inf])
+
+            for k in range(K):
+                perturbation = split_component(y, mu, cov, weight, R, k, **kwds)
+    
+                if perturbation[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [k] + list(perturbation)
+
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_k, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
+
+            # Predict say, 5 steps ahead.
+            for _ in range(2, 2+20):
+                foo = _approximate_message_length_change(K+_, b_weight, b_cov,
+                    b_meta["log_likelihood"].sum(), N, initial_ll, normalization_factor,
+                    optimized_mixture_lls)
+
+            # Update our approximations.
+            optimized_mixture_lls.append(b_meta["log_likelihood"].sum())
+
+
+            if message_length > b_ml:
+                mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
+                message_length = b_ml
+            else:
+                break
+
+
+        raise a
+
+
+
         entries = []
         message_length = b_ml
         ll = -ll
@@ -247,6 +496,8 @@ class GaussianMixture(object):
             covariance_type=self.covariance_type, 
             covariance_regularization=self._covariance_regularization)
 
+        """
+
         # Initialize the mixture.
         mu, cov, weight = _initialize(y, **kwds)
 
@@ -285,8 +536,39 @@ class GaussianMixture(object):
             meta.update(message_length=I, message_length_meta=I_full)
 
             return (mu, cov, weight, meta)
+        """
+
+        mu, cov, weight = _initialize(y, **kwds)
+        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+        ll_dl = [(ll.sum(), message_length)]
+        meta = dict(log_likelihood=ll.sum(), message_length=message_length)
+
+        while True:
+
+            K = weight.size
+            if K >= num_components: break
+            best_perturbations = defaultdict(lambda: [np.inf])
+            
+            # Split all components.
+            for k in range(K):
+                p = split_component(y, mu, cov, weight, R, k, **kwds)
+
+                # Keep best split component.
+                if p[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [k] + list(p)
 
 
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
+
+            logger.debug("Best operation: {} {}".format(bop, b_ml))
+
+            # Set the new state as the best perturbation.
+            message_length = b_ml
+            mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
+            meta.update(message_length=b_ml)
+
+        return (mu, cov, weight, meta)
         raise a
 
 
@@ -564,7 +846,7 @@ def _expectation(y, mu, cov, weight, **kwargs):
 
     :returns:
         A three-length tuple containing the responsibility matrix,
-        the log likelihood, and the change in message length.
+        the  log likelihood, and the change in message length.
     """
 
     responsibility, log_likelihood = responsibility_matrix(
@@ -574,7 +856,7 @@ def _expectation(y, mu, cov, weight, **kwargs):
 
     I = _message_length(y, mu, cov, weight, responsibility, nll, **kwargs)
     
-    return (responsibility, nll, I)
+    return (responsibility, log_likelihood, I)
 
 
 def log_kappa(D):
@@ -992,7 +1274,7 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None, **kwargs)
         responsibility = _init_responsibility
 
     iterations = 1
-    ll_dl = [(ll, dl)]
+    ll_dl = [(ll.sum(), dl)]
 
     while True:
 
@@ -1005,9 +1287,10 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None, **kwargs)
             = _expectation(y, mu, cov, weight, **kwargs)
 
         # Check for convergence.
+        lls = np.sum(ll)
         prev_ll, prev_dl = ll_dl[-1]
-        relative_delta_message_length = np.abs((ll - prev_ll)/prev_ll)
-        ll_dl.append([ll, dl])
+        relative_delta_message_length = np.abs((lls - prev_ll)/prev_ll)
+        ll_dl.append([lls, dl])
         iterations += 1
 
         assert np.isfinite(relative_delta_message_length)
