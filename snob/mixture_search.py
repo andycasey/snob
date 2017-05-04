@@ -92,7 +92,7 @@ def _generator_for_approximate_log_likelihood_improvement(K, log_likelihood,
     generating_function = lambda target_K: log_likelihood \
         + cost_function(np.arange(1, target_K), *p_opt).sum() * normalization_factor
 
-    if foo and x.size > 10:
+    if False and foo and x.size > 10:
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         ax.scatter(np.arange(ll.size) + 1, ll)
@@ -213,7 +213,8 @@ def _approximate_bound_sum_log_determinate_covariances(target_K,
 
 
 def _approximate_message_length_change(target_K, current_weights,
-    current_cov, current_log_likelihood, N, initial_ll, normalization_factor, optimized_mixture_lls):
+    current_cov, current_log_likelihood, N, initial_ll, normalization_factor, optimized_mixture_lls,
+    current_ml=0):
     r"""
     Estimate the change in message length between the current mixture of 
     Gaussians, and a target mixture.
@@ -239,6 +240,9 @@ def _approximate_message_length_change(target_K, current_weights,
         - func(target_K) + current_log_likelihood
     # Generate a function.
     print("PREDICTING TARGET {} FROM {}: {}".format(target_K, current_weights.size, delta_I))
+    if delta_K == 1:
+        assert np.all(delta_I + current_ml > 0)
+
     return delta_I
 
 
@@ -323,6 +327,106 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
 
+    def fast_search(self, y, **kwargs):
+        r"""
+        Search for the number of components, without running E-M everywhere.
+        """
+
+        kwds = dict(
+            threshold=self._threshold,
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self._covariance_type,
+            covariance_regularization=self._covariance_regularization)
+
+        N, D = y.shape
+
+        # Initialize the mixture.
+        mean = np.mean(y, axis=0).reshape((1, -1))
+        cov = _estimate_covariance_matrix(y, np.ones((1, N)), mean,
+            covariance_type, covariance_regularization)
+
+        R, ll, message_length = _expectation(y, mean, cov, weight, **kwds)
+
+        converged = False
+
+        while True:
+
+            # Split components, in order of ones with highest |C|.
+            component_indices = np.argsort(np.linalg.det(cov))[::-1]
+            split_component_index = component_indices[0]
+
+        
+            # Split this mixture.
+
+            split()
+
+            for iteration in range(self.max_em_iterations):
+
+                # Run e-step
+                self._expectation()
+
+                # Run m-step
+                self._maximization()
+
+                # Calculate P(I_{K+1} - I_{K} < 0).
+                # If we should add another component, then run the split
+                # again.
+                if self._predict_next_mixture_message_length() < best_ml:
+                    break
+
+                # If not, then we should check to see if E-M is converged.
+                # If it is, then stop. If not, run E-M again.
+                if self.threshold >= abs(change):
+                    # Here we want to leave the loop and not allow any more
+                    # splitting, since it's probably not worthwhile doing.
+                    converged = True
+                    break
+
+
+            else:
+                print("Warning: max number of EM steps")
+
+
+            # Did that E-M iteration converge, and we won't split again?
+            if converged: break
+
+
+            # TODO:
+            # Need some kind of check to see whether we should have
+            # splitted something else.
+            break
+
+
+
+        # Split the mixture.
+        
+        # Compute the direction of maximum variance of the single component, and
+        # locate two points which are one standard deviation away on either side.
+        U, S, V = _svd(cov, self.covariance_type)
+        child_mean = mean - np.vstack([+V[0], -V[0]]) * S[0]**0.5
+
+        # Responsibilities are initialized by allocating the data points to the 
+        # closest of the two means.
+        distance = np.vstack([
+            np.sum((y - child_mean[0])**2, axis=1),
+            np.sum((y - child_mean[1])**2, axis=1)
+        ])
+        
+        child_responsibility = np.zeros((2, N))
+        child_responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
+
+        # Calculate the child covariance matrices.
+        child_cov = _estimate_covariance_matrix(y, child_responsibility, child_mean,
+            kwargs["covariance_type"], kwargs["covariance_regularization"])
+
+        child_effective_membership = np.sum(child_responsibility, axis=1)    
+        child_weight = child_effective_membership.T/child_effective_membership.sum()
+
+        # OK, now run E-step.
+        
+        raise a
+
+
     def search(self, y, **kwargs):
         r"""
         Search for the number of components.
@@ -349,12 +453,19 @@ class GaussianMixture(object):
         # log-likelihood.
         # TODO: We don't even need to run E-M.
         optimized_mixture_lls = []
+        actual_sum_log_weights = [np.sum(np.log(weight))]
+        actual_sum_log_det_cov = [np.sum(np.log(np.linalg.det(cov)))]
+        predicted_sum_log_det_cov = [_approximate_bound_sum_log_determinate_covariances(2,
+            cov, "full")]
         while True:
 
             K = weight.size
             best_perturbations = defaultdict(lambda: [np.inf])
 
             for k in range(K):
+                if K > 1:
+                    print("k", k, np.log(np.linalg.det(cov[k])))
+
                 perturbation = split_component(y, mu, cov, weight, R, k, **kwds)
     
                 if perturbation[-1] < best_perturbations["split"][-1]:
@@ -363,21 +474,55 @@ class GaussianMixture(object):
             bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
             b_k, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
 
+            print("TOOK {}".format(b_k))
+
             # Predict say, 5 steps ahead.
+            bar = []
             for _ in range(2, 2+20):
-                foo = _approximate_message_length_change(K+_, b_weight, b_cov,
+                delta = _approximate_message_length_change(K+_, b_weight, b_cov,
                     b_meta["log_likelihood"].sum(), N, initial_ll, normalization_factor,
-                    optimized_mixture_lls)
+                    optimized_mixture_lls, b_ml)
+                predicted = delta + b_ml
+                bar.append(predicted)
+
+            bar = np.array(bar)
+            idx = np.argmin(bar.T[1])
+            print("PREDICTED WE MOVE TO {}: {} (FROM {})".format(range(2, 2+20)[idx] + K, bar[idx], b_ml))
 
             # Update our approximations.
             optimized_mixture_lls.append(b_meta["log_likelihood"].sum())
 
+            actual_sum_log_weights.append(np.sum(np.log(b_weight)))
+            actual_sum_log_det_cov.append(np.sum(np.log(np.linalg.det(b_cov))))
+            predicted_sum_log_det_cov.append(_approximate_bound_sum_log_determinate_covariances(K + 2,
+                b_cov, "full"))
 
             if message_length > b_ml:
                 mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
                 message_length = b_ml
+                ll = b_meta["log_likelihood"]
             else:
                 break
+
+
+        # weeights could be improved, but they aren;t bad (~10 nats at K=16)
+        """
+        x = 1 + np.arange(len(actual_sum_log_weights))
+        expected = _approximate_sum_log_weights(x)
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.scatter(x, actual_sum_log_weights)
+        ax.plot(x, expected)
+        """
+        
+        x = 1 + np.arange(len(predicted_sum_log_det_cov))
+        predicted_sum_log_det_cov = np.array(predicted_sum_log_det_cov)
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.scatter(x, actual_sum_log_det_cov)
+        ax.plot(x, predicted_sum_log_det_cov.T[0])
+        ax.plot(x, predicted_sum_log_det_cov.T[1])
 
 
         raise a
@@ -1293,11 +1438,15 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None, **kwargs)
         ll_dl.append([lls, dl])
         iterations += 1
 
+        print(iterations, lls)
+
         assert np.isfinite(relative_delta_message_length)
 
         if relative_delta_message_length <= kwargs["threshold"] \
         or iterations >= kwargs["max_em_iterations"]:
             break
+
+    print("RAN {} E-M steps".format(iterations))
 
     meta = dict(warnflag=iterations >= kwargs["max_em_iterations"], log_likelihood=ll)
     if meta["warnflag"]:
