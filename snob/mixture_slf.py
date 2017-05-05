@@ -138,11 +138,16 @@ class SLFGaussianMixture(object):
 
         U, S, V = np.linalg.svd(correlation_matrix)
 
-        # Set the initial values for b as the principal eigenvector, scaled by
-        # the square-root of the principal eigenvalue
-        b = V[0] * S[0]**0.5
 
-        #b = np.random.uniform(size=b.shape) - 0.5
+        if kwargs.get("randomly_initialize_factor_loads", False):
+            b = np.random.uniform(size=(K, )) - 0.5
+        else:
+
+            # Set the initial values for b as the principal eigenvector, scaled by
+            # the square-root of the principal eigenvalue
+            b = V[0] * S[0]**0.5
+
+
 
         specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) \
                     / ((b*b + 1.0) * (N - 1)))
@@ -435,8 +440,7 @@ class SLFGaussianMixture(object):
             print("Scheme did not converge")
             # Iterative scheme didn't converge.
             b = 0.5 * (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
-            b = np.random.uniform(size=b.shape) - 0.5
-
+            
         specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) \
                     / ((b*b + 1.0) * (N - 1)))
         factor_loads = specific_sigmas * b
