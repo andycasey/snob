@@ -8,7 +8,7 @@ from . import (estimator, gaussian, slf)
 __version__ = "0.0.1"
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARN)
+logger.setLevel(logging.DEBUG)
 
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter(
