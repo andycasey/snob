@@ -41,7 +41,7 @@ y = np.vstack([np.random.multivariate_normal(
 
 
 
-#y = np.loadtxt("cluster_example.txt")
+y = np.loadtxt("cluster_example.txt")
 
 
 #n_samples = 500
