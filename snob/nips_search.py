@@ -13,6 +13,7 @@ __all__ = [
 import logging
 import numpy as np
 import scipy
+import scipy.stats as stats
 import scipy.optimize as op
 from collections import defaultdict
 
@@ -42,204 +43,68 @@ def _total_parameters(K, D):
     return (0.5 * D * (D + 3) * K) + (K - 1)
 
 
-def _generate_ll_approximator(K, log_likelihood,
-    normalization_factor, *log_likelihoods_of_sequentially_increasing_mixtures):
-    
-    x = np.arange(K, K + len(log_likelihoods_of_sequentially_increasing_mixtures))
-    ll = np.hstack([log_likelihood, *log_likelihoods_of_sequentially_increasing_mixtures])
-    y = np.diff(ll) / normalization_factor
 
-    functions = {
-        1: lambda x, *p: p[0] / np.exp(x),
-        2: lambda x, *p: p[0] / np.exp(p[1] * x),
-        3: lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
-    }
-
-    foo = False
-    if x.size > 3:
-        #x = x[1:]
-        #y = y[1:]
-        foo = True
-
-    p_opt_ = []
-    for d in np.arange(1, 1 + x.size)[::-1]:
-
-        cost_function = functions.get(d, functions[3])
-        p0 = np.ones(d)
-
-        try:
-            p_opt, p_cov = op.curve_fit(cost_function, x, y, p0=p0)
-        except:
-            assert d > 1
-            continue
-        else:
-            p_opt_.append(p_opt)
-            break
-
-    p_opt = p_opt_.pop(0)
-    d = p_opt.size
-    cost_function = functions.get(d, functions[3])
-
-    generating_function = lambda target_K: log_likelihood \
-        + cost_function(np.arange(1, target_K), *p_opt).sum() * normalization_factor
-
-    if False and foo and x.size > 10:
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        ax.scatter(np.arange(ll.size) + 1, ll)
-        ax.plot(np.arange(ll.size) + 1, [generating_function(_) for _ in np.arange(ll.size) + 1], c='r')
-        raise a
-
-    return generating_function
-
-
-
-def _approximate_log_likelihood_improvement(y, mu, cov, weight, 
-    log_likelihood, *log_likelihoods_of_sequentially_increasing_mixtures):
-    """
-    Return a function that will approximate the log-likelihood value for a
-    given target number of mixtures.
-    """
-
-    # Evaluate the current mixture.
-    K = weight.size
-    evaluate_f1 = np.sum(weight * np.vstack(
-        [_evaluate_gaussian(y, mu[k], cov[k]) for k in range(K)]).T)
-
-    x = np.arange(K, K + len(log_likelihoods_of_sequentially_increasing_mixtures))
-    ll = np.hstack([log_likelihood, log_likelihoods_of_sequentially_increasing_mixtures])
-    y = np.diff(ll) / evaluate_f1
-
-    d = x.size
-    functions = {
-        1: lambda x, *p: p[0] / np.exp(x),
-        2: lambda x, *p: p[0] / np.exp(p[1] * x),
-        3: lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
-    }
-    cost_function = functions.get(d, functions[3])
-    p0 = np.ones(d)
-
-    p_opt, p_cov = op.curve_fit(cost_function, x, y, p0=p0)
-    
-    # Now generate the function to estimate the log-likelihood of the K-th
-    # mixture.
-    generating_function = lambda K: log_likelihood + cost_function(np.arange(1, K-1), *p_opt).sum() * evaluate_f1
-
-    return generating_function
-
-
-
-def _approximate_sum_log_weights(target_K):
+def _responsibility_matrix(y, mean, covariance, weight, covariance_type):
     r"""
-    Return an approximate expectation of the function:
+    Return the responsibility matrix,
 
-    .. math:
+    .. math::
 
-        \sum_{k=1}^{K}\log{w_k}
-
-    Where :math:`K` is the number of mixtures, and :math:`w` is a multinomial
-    distribution. The approximating function is:
-
-    .. math:
-
-        \sum_{k=1}^{K}\log{w_k} \approx -K\log{K}
-
-    :param target_K:
-        The number of target Gaussian mixtures.
-    """
-
-    # TODO: Return a variance on this expectation.
-    return -target_K * np.log(target_K)
+        r_{ij} = \frac{w_{j}f\left(x_i;\theta_j\right)}{\sum_{k=1}^{K}{w_k}f\left(x_i;\theta_k\right)}
 
 
-def _approximate_bound_slogdet_covariances(target_K, 
-    covariance_matrices, covariance_type):
-    r"""
-    Return an approximate expectation of the function:
+    where :math:`r_{ij}` denotes the conditional probability of a datum
+    :math:`x_i` belonging to the :math:`j`-th component. The effective 
+    membership associated with each component is then given by
 
-    .. math:
+    .. math::
 
-        \sum_{k=1}^{K}\log{|\bm{C}_k|}
+        n_j = \sum_{i=1}^{N}r_{ij}
+        \textrm{and}
+        \sum_{j=1}^{M}n_{j} = N
 
-    Where :math:`C_k` is the covariance matrix of the :math:`K`-th mixture.
-    A lower and upper bound is given for the approximation, which is based on
-    the current estimates of the covariance matrices. The determinants of
-    the target distribution are estimated as:
 
-    .. math:
-
-        |\bm{C}_k| = \frac{k_{current}}{k_{target}}\min\left(|C_k|\right)
+    where something.
     
-    and the upper bound as:
+    :param y:
+        The data values, :math:`y`.
 
-    .. math:
+    :param mu:
+        The mean values of the :math:`K` multivariate normal distributions.
 
-        |\bm{C}_k| = \frac{k_{current}}{k_{target}}\max\left(|C_k|\right)
+    :param cov:
+        The covariance matrices of the :math:`K` multivariate normal
+        distributions. The shape of this array will depend on the 
+        ``covariance_type``.
 
-    :param K:
-        The target number of Gaussian mixtures.
-    
-    :param covariance_matrices:
-        The current estimate of the covariance matrices.
-    
-    :param covariance_type:
-        The type of structure assumed for the covariance matrix.
+    :param weight:
+        The current estimates of the relative mixing weight.
+
+    :param full_output: [optional]
+        If ``True``, return the responsibility matrix, and the log likelihood,
+        which is evaluated for free (default: ``False``).
 
     :returns:
-        An estimated lower and upper bound on the sum of the logarithm of the
-        determinants of a :math:`K` Gaussian mixture.
+        The responsibility matrix. If ``full_output=True``, then the
+        log likelihood (per observation) will also be returned.
     """
 
-    # Get the current determinants.
-    current_K, D, _ = covariance_matrices.shape
-    assert covariance_type == "full" #TODO
-    assert target_K > current_K
+    precision = _compute_precision_cholesky(covariance, covariance_type)
+    weighted_log_prob = np.log(weight) + \
+        _estimate_log_gaussian_prob(y, mean, precision, covariance_type)
 
-    current_det = np.linalg.det(covariance_matrices)
+    log_likelihood = scipy.misc.logsumexp(weighted_log_prob, axis=1)
+    with np.errstate(under="ignore"):
+        log_responsibility = weighted_log_prob - log_likelihood[:, np.newaxis]
 
-    current_det_bounds = np.array([np.min(current_det), np.max(current_det)])
-    target_det_bounds = current_K/float(target_K) * current_det_bounds
-
-    return target_K * np.log(target_det_bounds)
-
-
-def _approximate_message_length_change(target_K, current_weights,
-    current_cov, current_log_likelihood, N, initial_ll, normalization_factor, optimized_mixture_lls,
-    current_ml=0):
-    r"""
-    Estimate the change in message length between the current mixture of 
-    Gaussians, and a target mixture.
-    """
-
-    func = _generator_for_approximate_log_likelihood_improvement(1, initial_ll,
-        normalization_factor, *np.hstack([optimized_mixture_lls, current_log_likelihood]))
-
-    current_K, D, _ = current_cov.shape
-    delta_K = target_K - current_K
-    assert delta_K > 0
-
-    # Calculate everything except the log likelihood.
-    delta_I = delta_K * (
-            (1 - D/2.0) * np.log(2) \
-            + 0.25 * (D * (D+3) + 2) * np.log(N/(2*np.pi))) \
-        + 0.5 * (D*(D+3)/2 - 1) * (_approximate_sum_log_weights(target_K) - np.sum(np.log(current_weights))) \
-        - np.sum([np.log(current_K + dk) for dk in range(delta_K)]) \
-        + 0.5 * np.log(_total_parameters(target_K, D)/float(_total_parameters(current_K, D))) \
-        + (D + 2)/2.0 * (
-            _approximate_bound_sum_log_determinate_covariances(target_K, current_cov, "full") \
-            - np.sum(np.log(np.linalg.det(current_cov)))) \
-        - func(target_K) + current_log_likelihood
-    # Generate a function.
-    logger.debug("PREDICTING TARGET {} FROM {}: {}".format(target_K, current_weights.size, delta_I))
-    if delta_K == 1:
-        assert np.all(delta_I + current_ml > 0)
-
-    return delta_I
+    responsibility = np.exp(log_responsibility).T
+    
+    return (responsibility, log_likelihood)
 
 
 
 
-class GaussianMixture(object):
+class BaseGaussianMixture(object):
 
     r"""
     Model data from (potentially) many multivariate Gaussian distributions, 
@@ -292,12 +157,6 @@ class GaussianMixture(object):
         self._covariance_type = covariance_type
         self._covariance_regularization = covariance_regularization
         
-        # For predictions.
-        self.__slog_weight = []
-        self.__slogdet_covariance = []
-        self._max_mixture_log_likelihood = {}
-        self._min_mixture_message_length = {}
-
         return None
 
     @property
@@ -342,14 +201,6 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
 
-    @property
-    def mixture_probability(self):
-        r""" 
-        Return the minimum probability needed before we add a new mixture. 
-        """
-        return self._mixture_probability
-
-
     def _expectation(self, y, **kwargs):
         r"""
         Perform the expectation step of the expectation-maximization algorithm.
@@ -362,8 +213,8 @@ class GaussianMixture(object):
             the  log likelihood, and the change in message length.
         """
 
-        responsibility, log_likelihood \
-            = self.responsibility_matrix(y, full_output=True, **kwargs)
+        responsibility, log_likelihood = _responsibility_matrix(
+            y, self.mean, self.covariance, self.weight, self.covariance_type)
 
         ll = np.sum(log_likelihood)
 
@@ -371,18 +222,11 @@ class GaussianMixture(object):
             responsibility, -ll, self.covariance_type,
             **kwargs)
 
-        # Update our record of the best log-likelihood per mixture,
-        # so that we can make predictions about future mixtures.
-        K = self.weight.size
-        assert ll > self._max_mixture_log_likelihood.get(K, -np.inf)
-        #assert I < self._min_mixture_message_length.get(K, np.inf)
-        self._max_mixture_log_likelihood[K] = ll
-        self._min_mixture_message_length[K] = I
-
         return (responsibility, log_likelihood, I)
 
 
-    def _maximization(self, y, responsibility, **kwargs):
+    def _maximization(self, y, responsibility, parent_responsibility=1,
+        **kwargs):
         r"""
         Perform the maximization step of the expectation-maximization 
         algorithm.
@@ -399,38 +243,124 @@ class GaussianMixture(object):
 
         K = self.weight.size 
         N, D = y.shape
-        
+
+        # Update the weights.
         effective_membership = np.sum(responsibility, axis=1)
         weight = (effective_membership + 0.5)/(N + K/2.0)
 
+        w_responsibility = parent_responsibility * responsibility
+        w_effective_membership = np.sum(w_responsibility, axis=1)
+
         mean = np.empty(self.mean.shape)
-        for k, (R, Nk) in enumerate(zip(responsibility, effective_membership)):
+        for k, (R, Nk) in enumerate(zip(w_responsibility, w_effective_membership)):
             mean[k] = np.sum(R * y.T, axis=1) / Nk
 
-        covariance = _estimate_covariance_matrix(y, responsibility, mean, 
+        # TODO: Use parent responsibility when initializing?
+        covariance = _estimate_covariance_matrix(y, responsibility, mean,
             self.covariance_type, self.covariance_regularization)
 
-        # TODO: Callback?
+        # TODO: callback?
         return self.set_parameters(
             weight=weight, mean=mean, covariance=covariance)
 
 
-    def _split_component(self, y, responsibility, component_index, **kwargs):
+    def _expectation_maximization(self, y, responsibility=None, **kwargs):
         r"""
-        Split a component from the current mixture.
+        Run the expectation-maximization algorithm on the current set of
+        multivariate Gaussian mixtures.
 
         :param y:
             A :math:`N\times{}D` array of the observations :math:`y`,
             where :math:`N` is the number of observations, and :math:`D` is the
             number of dimensions per observation.
 
-        :param component_index:
-            The index of the component to be split.
+        :param responsibility: [optional]
+            The responsibility matrix for all :math:`N` observations being
+            partially assigned to each :math:`K` component. If ``None`` is given
+            then the responsibility matrix will be calculated in the first
+            expectation step.
+        """   
 
+        # Calculate log-likelihood and initial expectation step.
+        __init_responsibility, ll, dl = self._expectation(y, **kwargs)
+        if responsibility is None:
+            responsibility = __init_responsibility
+
+        ll_dl = [(ll.sum(), dl)]
+
+        meta = dict(warnflag=False)
+        for iteration in range(self.max_em_iterations):
+
+            # M-step.
+            self._maximization(y, responsibility, **kwargs)
+
+            # E-step.
+            responsibility, ll, dl = self._expectation(y, **kwargs)
+
+            # Check for convergence.
+            lls = ll.sum()
+            prev_ll, prev_dl = ll_dl[-1]
+            change = (lls - prev_ll)/prev_ll
+            ll_dl.append([lls, dl])
+
+            if abs(change) <= self.threshold:
+                break
+
+        else:
+            meta.update(warnflag=True)
+            logger.warn("Maximum number of E-M iterations reached ({})"\
+                .format(self.max_em_iterations))
+
+        meta.update(log_likelihood=lls, message_length=dl)
+
+        return (responsibility, meta)
+
+
+    @property
+    def parameters(self):
+        return dict([(k, getattr(self, k, None)) for k in self.parameter_names])
+
+    def set_parameters(self, **kwargs):
+        r"""
+        Set specific parameters.
         """
 
-        # Compute the direction of maximum variance of the parent component, 
-        # and locate two points that are one standard deviation on either side.
+        invalid_params = set(self.parameter_names).difference(kwargs.keys())
+        if invalid_params:
+            raise ValueError(
+                "unknown parameters: {}".format(", ".join(invalid_params)))            
+        
+        for parameter_name, value in kwargs.items():
+            setattr(self, "_{}".format(parameter_name), value)
+
+        return kwargs
+
+
+class GaussianMixture(BaseGaussianMixture):
+
+    def __init__(self, **kwargs):
+        super(GaussianMixture, self).__init__(**kwargs)
+
+        # For predictions.
+        self._proposed_mixtures = []
+
+        # Store the following summary pieces of information about mixtures.
+        # (1) Sum of the log of the determinant of the covariance matrices.
+        # (2) The sum of the log-likelihood.
+        # (3) The sum of the log of the weights.
+
+        # Do we want this from each E-M step, or all steps?
+        # (K, sum_log_weights, sum_log_likelihood, sum_log_det_covariances)
+        self._mixture_predictors = []
+        self._slogs = []
+
+
+    def _optimize_split_mixture(self, y, responsibility, component_index):
+        r"""
+        Split a component from the current mixture, and run partial 
+        expectation-maximization algorithm on the split component.
+
+        """
         U, S, V = _svd(self.covariance[component_index], self.covariance_type)
 
         split_mean = self.mean[component_index] \
@@ -457,77 +387,94 @@ class GaussianMixture(object):
         parent_weight = self.weight[component_index]
         parent_responsibility = responsibility[component_index]
 
-        weight = np.hstack([self.weight, [parent_weight * split_weight[1]]])
-        weight[component_index] = parent_weight * split_weight[0]
+        mixture = self.__class__(
+            threshold=self.threshold,
+            covariance_type=self.covariance_type,
+            max_em_iterations=self.max_em_iterations,
+            covariance_regularization=self.covariance_regularization)
 
-        mean = np.vstack([self.mean, [split_mean[1]]])
-        mean[component_index] = split_mean[0]
+        # Initialize it.
+        mixture.set_parameters(mean=split_mean, weight=split_weight,
+            covariance=split_covariance)
 
-        covariance = np.vstack([self.covariance, [split_covariance[1]]])
-        covariance[component_index] = split_covariance[0]
+        # Run E-M on the partial mixture.
+        R, meta = mixture._expectation_maximization(
+            y, parent_responsibility=responsibility[component_index])
 
-        # Set parameters.
-        return self.set_parameters(mean=mean, weight=weight, covariance=covariance)
+        if self.weight.size > 1:
+            # Integrate the partial mixture with the full mixture.
+            weight = np.hstack([self.weight, 
+                [parent_weight * mixture.weight[1]]])
+            weight[component_index] = parent_weight * mixture.weight[0]
+
+            mean = np.vstack([self.mean, [mixture.mean[1]]])
+            mean[component_index] = mixture.mean[0]
+
+            covariance = np.vstack([self.covariance, [mixture.covariance[1]]])
+            covariance[component_index] = mixture.covariance[0]
+
+            responsibility = np.vstack([responsibility,
+                [parent_responsibility * R[1]]])
+            responsibility[component_index] = parent_responsibility * R[0]
+
+            mixture.set_parameters(
+                mean=mean, covariance=covariance, weight=weight)
+
+            R, meta = mixture._expectation_maximization(
+                y, responsibility=responsibility)
+
+        # Store the mixture.
+        self._proposed_mixtures.append(mixture)
+        self._mixture_predictors.append([
+            mixture.weight.size,
+            np.sum(np.log(mixture.weight)),
+            meta["log_likelihood"],
+            np.sum(np.log(np.linalg.det(mixture.covariance)))
+        ])
+        self._slogs.append(np.linalg.det(mixture.covariance))
+
+        return (len(self._proposed_mixtures) - 1, R, meta)
+
+        # Run
+
+        kwds = dict(
+            threshold=self._threshold,
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self._covariance_type,
+            covariance_regularization=self._covariance_regularization)
+
+        # Run E-M on the split mixture, keeping all else fixed.
+        #(dict(mean=mu, covariance=cov, weight=weight), responsibility, meta, dl)
+        params, R, meta, dl = _expectation_maximization(y, split_mean, split_covariance,
+            split_weight, responsibility=split_responsibility,
+            parent_responsibility=parent_responsibility,
+            **kwds)
 
 
-    def responsibility_matrix(self, y, full_output=False, **kwargs):
-        r"""
-        Return the responsibility matrix,
+        if self.weight.size > 1:
 
-        .. math::
+            # Integrate the child mixtures back.
+            weight = np.hstack([self.weight, [parent_weight * params["weight"][1]]])
+            weight[component_index] = parent_weight * params["weight"][0]
 
-            r_{ij} = \frac{w_{j}f\left(x_i;\theta_j\right)}{\sum_{k=1}^{K}{w_k}f\left(x_i;\theta_k\right)}
+            mean = np.vstack([self.mean, [params["mean"][1]]])
+            mean[component_index] = params["mean"][0]
+
+            covariance = np.vstack([self.covariance, [params["covariance"][1]]])
+            covariance[component_index] = params["covariance"][0]
+
+            responsibility = np.vstack([responsibility, 
+                [parent_responsibility * R[1]]])
+            responsibility[component_index] \
+                = parent_responsibility * R[0]
+
+            return _expectation_maximization(y, mean, covariance, weight,
+                responsibility=responsibility, **kwds)
 
 
-        where :math:`r_{ij}` denotes the conditional probability of a datum
-        :math:`x_i` belonging to the :math:`j`-th component. The effective 
-        membership associated with each component is then given by
+        else:
+            return (params, R, meta, dl)
 
-        .. math::
-
-            n_j = \sum_{i=1}^{N}r_{ij}
-            \textrm{and}
-            \sum_{j=1}^{M}n_{j} = N
-
-
-        where something.
-        
-        :param y:
-            The data values, :math:`y`.
-
-        :param mu:
-            The mean values of the :math:`K` multivariate normal distributions.
-
-        :param cov:
-            The covariance matrices of the :math:`K` multivariate normal
-            distributions. The shape of this array will depend on the 
-            ``covariance_type``.
-
-        :param weight:
-            The current estimates of the relative mixing weight.
-
-        :param full_output: [optional]
-            If ``True``, return the responsibility matrix, and the log likelihood,
-            which is evaluated for free (default: ``False``).
-
-        :returns:
-            The responsibility matrix. If ``full_output=True``, then the
-            log likelihood (per observation) will also be returned.
-        """
-
-        precision_cholesky = _compute_precision_cholesky(
-            self.covariance, self.covariance_type)
-        weighted_log_prob = np.log(self.weight) + _estimate_log_gaussian_prob(
-            y, self.mean, precision_cholesky, self.covariance_type)
-
-        log_likelihood = scipy.misc.logsumexp(weighted_log_prob, axis=1)
-        with np.errstate(under="ignore"):
-            log_responsibility = weighted_log_prob - log_likelihood[:, np.newaxis]
-
-        responsibility = np.exp(log_responsibility).T
-        
-        return responsibility if not full_output \
-                              else (responsibility, log_likelihood)
 
 
     def _initialize_parameters(self, y, **kwargs):
@@ -555,35 +502,8 @@ class GaussianMixture(object):
             weight=weight, mean=mean, covariance=covariance)
 
 
-    def set_parameters(self, **kwargs):
-        r"""
-        Set specific parameters.
-        """
 
-        invalid_params = set(self.parameter_names).difference(kwargs.keys())
-        if invalid_params:
-            raise ValueError(
-                "unknown parameters: {}".format(", ".join(invalid_params)))            
-        
-        for parameter_name, value in kwargs.items():
-            setattr(self, "_{}".format(parameter_name), value)
-
-            # Record attributes of these values for predictive purposes.
-            # TODO: We could probably save this somewhere else, when it is
-            # computed for reasons that we actually need it.
-            if value is not None: # And a keyword argument to prevent?
-                if parameter_name == "weight":
-                    self.__slog_weight.append([value.size, np.sum(np.log(value))])
-
-                elif parameter_name == "covariance":
-                    sign, slogdet = np.linalg.slogdet(value)
-                    self.__slogdet_covariance.append([value.size, value.sum()])
-
-
-        return kwargs
-
-
-    def _predict_mixture_minimum_message_length(self, N, K=None):
+    def _predict_message_length_change(self, N, K=None):
         r"""
         Predict the minimum message length of a target mixture of K Gaussian
         distributions, where K is an integer larger than the current mixture.
@@ -603,36 +523,49 @@ class GaussianMixture(object):
                 "the target K mixture must contain more Gaussians than the "\
                 "current mixture ({} > {})".format(K, current_K))
 
-        # TODO: Normalization factor?
-        # TODO: Put generator in the class?
-        # TODO: data type for optimized mixture
-        lls = [self._max_mixture_log_likelihood[k] for k in sorted(self._max_mixture_log_likelihood.keys())[1:]]
-        approximate_ll = _generate_ll_approximator(1, self._max_mixture_log_likelihood[1], 1, *lls)
+        predictors = np.array(self._mixture_predictors)
+        kwds = dict(target_K=K, predictors=predictors)
 
         dK = K - current_K
+        ll_expectation, ll_scatter \
+            = self._approximate_sum_log_likelihood(**kwds)
 
-        # TODO: Function to improve approximation of sum of log weights.
-        # TODO: Function to improve approximate bounds of sum_log_determinate_covariances
+        slw_expectation, slw_lower, slw_upper \
+            = self._approximate_sum_log_weights(**kwds)
+
+        sldc_expectation, sldc_scatter \
+            = self._approximate_sum_log_det_covariances(**kwds)
 
         # Calculate the change in message length.
+        current_ll = np.max(predictors.T[2][predictors.T[0] == current_K])
         sign, slogdet = np.linalg.slogdet(self.covariance)
-        assert np.all(sign > 0), "Whoa hold on there buddy"
 
         delta_I = dK * (
             (1 - D/2.0)*np.log(2) + 0.25 * (D*(D+3) + 2)*np.log(N/(2*np.pi))) \
-            + 0.5 * (D*(D+3)/2 - 1) * (_approximate_sum_log_weights(K) - np.sum(np.log(self.weight))) \
+            + 0.5 * (D*(D+3)/2 - 1) * (slw_expectation - np.sum(np.log(self.weight))) \
             - np.sum([np.log(current_K + dk) for dk in range(dK)]) \
             + 0.5 * np.log(_total_parameters(K, D)/float(_total_parameters(current_K, D))) \
             + (D + 2)/2.0 * (
-                _approximate_bound_slogdet_covariances(K, self.covariance, self.covariance_type)
+                sldc_expectation
                 - np.sum(slogdet)) \
-            - approximate_ll(K) + lls[-1]
+            - ll_expectation + current_ll
 
-        I = delta_I + self._min_mixture_message_length[current_K]
-        return I
+        scatter_I = ((sldc_scatter**2 * (D + 2)/2.0) + ll_scatter**2)**0.5
+
+        lower_delta_I = dK * (
+            (1 - D/2.0)*np.log(2) + 0.25 * (D*(D+3) + 2)*np.log(N/(2*np.pi))) \
+            + 0.5 * (D*(D+3)/2 - 1) * (slw_upper - np.sum(np.log(self.weight))) \
+            - np.sum([np.log(current_K + dk) for dk in range(dK)]) \
+            + 0.5 * np.log(_total_parameters(K, D)/float(_total_parameters(current_K, D))) \
+            + (D + 2)/2.0 * (
+                sldc_expectation
+                - np.sum(slogdet)) \
+            - ll_expectation + current_ll
+
+        return (delta_I, scatter_I, lower_delta_I)
 
 
-    def _approximate_sum_log_weights(self, target_K):
+    def _approximate_sum_log_weights(self, target_K, predictors=None):
         r"""
         Return an approximate expectation of the function:
 
@@ -651,13 +584,100 @@ class GaussianMixture(object):
             The number of target Gaussian mixtures.
         """
 
-        # If we have no information, then the function is:
+        if predictors is None:
+            predictors = np.array(self._mixture_predictors)
 
-        return -target_K * np.log(target_K)
+        k, slw = (predictors.T[0], predictors.T[1])
 
-        # But if we have information then we should make the function flexible
-        # and keep the best estimates.
+        # Upper bound.
+        upper = -target_K * np.log(target_K)
 
+        # Some expectation value.
+        if 3 > len(k):
+            # Don't provide an expectation value.
+            fexpectation = None
+            variance = None
+            lower = None
+
+        else:
+            lower_values = [[k[0], slw[0]]]
+            for k_, slw_ in zip(k[1:], slw[1:]):
+                if k_ == lower_values[-1][0] and slw_ < lower_values[-1][1]:
+                    lower_values[-1][1] = slw_
+                elif k_ > lower_values[-1][0]:
+                    lower_values.append([k_, slw_])
+            lower_values = np.array(lower_values)
+
+            function = lambda x, *p: -x * p[0] * np.log(x) + p[1]
+
+            # Lower bound.
+            lower_params, lower_cov = op.curve_fit(
+                function, lower_values.T[0], lower_values.T[1], p0=[1, 0])
+            lower = function(target_K, *lower_params)
+
+            # Expectation.
+            exp_params, exp_cov = op.curve_fit(function, k, slw, p0=[1, 0])
+            expectation = function(target_K, *exp_params)
+
+        return (expectation, lower, upper)
+
+
+    def _approximate_sum_log_likelihood(self, target_K, predictors=None,
+        samples=30):
+
+        if predictors is None:
+            predictors = np.array(self._mixture_predictors)
+
+        k, ll = (predictors.T[0], predictors.T[2])
+
+        upper_values = [[k[0], ll[0]]]
+        for k_, ll_ in zip(k[1:], ll[1:]):
+            if k_ == upper_values[-1][0] and ll_ > upper_values[-1][1]:
+                upper_values[-1][1] = ll_
+            elif k_ > upper_values[-1][0]:
+                upper_values.append([k_, ll_])
+        upper_values = np.array(upper_values)
+        
+        function = lambda x, *p: p[0] * np.log(x) + p[1]
+
+        # Return an expectation and a variance.
+        x, y = upper_values.T
+        op_params, op_cov = op.curve_fit(function, x, y, p0=np.ones(2),
+            maxfev=100000)
+
+        expectation = function(target_K, *op_params)
+
+        if np.all(np.isfinite(op_cov)):
+            scatter = np.std(function(target_K, 
+                *(np.random.multivariate_normal(op_params, op_cov, size=samples).T)))
+
+        else:
+            scatter = 0
+
+        return (expectation, scatter)
+
+
+    def _approximate_sum_log_det_covariances(self, target_K, predictors=None):
+
+        if predictors is None:
+            predictors = np.array(self._mixture_predictors)
+        
+        # Only take estimates from the most recent K.
+        x, y = predictors.T[0], predictors.T[3]
+        idx = 1 + np.where(np.diff(x) > 0)[0][::-1][0]
+        
+        K = float(x[idx])
+
+        prediction = []
+        for xi, yi in zip(x[idx:], self._slogs[idx:]):
+            vals = np.array(yi) * float(K)/target_K
+            vals = np.hstack([vals, np.median(vals)])
+            prediction.append(np.sum(np.log(vals)))
+
+        expectation, scatter = (np.median(prediction), np.std(prediction))
+        # TODO: vectorize for target_K
+
+        return expectation, scatter
 
 
     def search(self, y, **kwargs):
@@ -679,75 +699,92 @@ class GaussianMixture(object):
 
         converged = False
 
-        while True:
+        while not converged:
 
-            # Split components, in order of ones with highest |C|.
-            component_indices = np.argsort(np.linalg.det(self.covariance))[::-1]
-            split_component_index = component_indices[0]
+            while True:
 
-            logger.debug("Splitting component {} from {} to {}".format(
-                split_component_index,
-                self.weight.size, self.weight.size + 1))
-            
-            # Split this mixture.
-            R = self._split_component(y, R, split_component_index)
-            
-            R, ll, I = self._expectation(y)
-            lls = [ll.sum()]
+                # Split all components, and run partial E-M on each.
+                K = self.weight.size
+                best_perturbation = []
 
-            for iteration in range(self.max_em_iterations):
+                for k in range(K):
+                    # Split the mixture, run partial E-M then full E-M.
+                    idx, _, meta = self._optimize_split_mixture(y, R, k)
 
-                # Maximize the parameters, conditioned on our expectation.
-                self._maximization(y, R)
+                    logger.debug("partial EM {} {} {} {}".format(K, k, idx, meta))
+                    if k == 0 \
+                    or best_perturbation[-1] > meta["message_length"]:
+                        best_perturbation = [idx, meta["message_length"]]
 
-                # Calculate P(I_{K+1} - I_{K} < 0).
-                # If we should add another component, then run the split
-                # again.
-                
-                # If not, then we should check to see if E-M is converged.
-                # If it is, then stop. If not, run E-M again.
-                R, ll, I = self._expectation(y)
-                lls.append(ll.sum())
+                # Is the best perturbation better than the current mixture?
+                if best_perturbation[-1] < I:
+                    idx, I = best_perturbation
+                    mixture = self._proposed_mixtures[idx]
 
-                change = (lls[-1] - lls[-2])/lls[-2]
-                logger.debug("E-M step: {} {}".format(iteration, change))
-                pdf = self._predict_mixture_minimum_message_length(N)
-                
-                if self.threshold >= abs(change):
-                    # Here we want to leave the loop and not allow any more
-                    # splitting, since it's probably not worthwhile doing.
+                    self.set_parameters(**mixture.parameters)
+                    # Take this mixture, and calculate a pdf for the next mixture.
                     
-                    
-                    logger.debug("Prediction from {}: {} {} {} --> {}".format(
-                        self.weight.size, iteration, pdf - I, I,
-                        "SPLIT" if np.percentile(pdf, 1 - self._mixture_probability) < I else "KEEP"))
-                    if np.percentile(pdf, 1 - self._mixture_probability) < I:
-                        # Don't do any more E-M iterations, just split a component
-                        logger.debug("SPLIT")
-                    else:
-                        converged = True
-
-
-
+                else:
+                    # All split perturbations had longer message lengths.
+                    converged = True
                     break
 
+                # To update message length, max log likelihood tec
+                # TODO refactor
+                R, ll, I = self._expectation(y, **kwargs)
 
-            else:
-                logger.debug("Warning: max number of EM steps")
+                # Only start making predictions when we have a few clusters.
+                # TODO: Make this more flexible so that we go from first time.
+                if self.weight.size > 2:
 
+                    change, scatter, lower = self._predict_message_length_change(N)
+                    
+                    logger.debug("Actual: {}".format(I))
+                    logger.debug("Prediction for next mixture: {}".format(I + change))
+                    logger.debug("Predicted lower bound for next mixture: {}".format(I + lower))
+                    logger.debug("Predicted delta for next mixture: {} {}".format(change, scatter))
 
-            # Did that E-M iteration converge, and we won't split again?
-            if converged: 
-                logger.debug("Convergence detected")
+                    logger.debug("K = {}".format(self.weight.size))
+
+                    if stats.norm(change, scatter).cdf(0) > self._mixture_probability:
+                        logger.debug("WE SHOULD SPLIT")
+
+                    else:
+                        break
+
+            if converged:
+                logger.debug("Skipping final sweep")
                 break
 
+            logger.debug("Doing final sweep")
 
-            # TODO:
-            # Need some kind of check to see whether we should have
-            # splitted something else.
-            logger.debug("CHECK SOMETHING")
+            # Do a final sweep to be sure.
+            K = self.weight.size
+            best_perturbation = []
+            for k in range(K):
+                perturbation = self._propose_split_mixture(y, R, k)
+                if k == 0 \
+                or best_perturbation[-1] > perturbation[-1]:
+                    best_perturbation = [k] + list(perturbation)
 
-        logger.debug("K = {}".format(self.weight.size))
+            logger.debug("Actual: {}".format(best_perturbation[-1]))
+                
+            if best_perturbation[-1] < I:
+                k, params, _R, _meta, I = best_perturbation
+                self.set_parameters(**params)
+
+                R, ll, I = self._expectation(y, **kwargs)
+
+                # Make a prediction for the next one either way.
+                pdf = self._predict_message_length_change(N)
+                logger.debug("Prediction for next mixture: {}".format(pdf))
+
+            else:
+                # Converged.
+                converged = True
+
+
+        logger.debug("Ended at K = {}".format(self.weight.size))
         import matplotlib.pyplot as plt
         from matplotlib.patches import Ellipse
         fig, ax = plt.subplots()
@@ -755,13 +792,13 @@ class GaussianMixture(object):
 
         K = self.weight.size
         for k in range(K):
-            mean = self.mean[k]
+            mean = self.mean[k][:2]
             cov = self.covariance[k]
 
-            vals, vecs = np.linalg.eigh(cov)
+            vals, vecs = np.linalg.eigh(cov[:2, :2])
             order = vals.argsort()[::-1]
             vals = vals[order]
-            vecs = vecs[order]
+            vecs = vecs[:,order]
 
             theta = np.degrees(np.arctan2(*vecs[:,0][::-1]))
 
@@ -773,7 +810,7 @@ class GaussianMixture(object):
 
         raise a
 
-        
+
 
 def kullback_leibler_for_multivariate_normals(mu_a, cov_a, mu_b, cov_b):
     r"""
@@ -1175,5 +1212,4 @@ def _svd(covariance, covariance_type):
 
     else:
         raise ValueError("unknown covariance type")
-
 
