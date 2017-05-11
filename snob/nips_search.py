@@ -431,7 +431,7 @@ class GaussianMixture(BaseGaussianMixture):
             np.sum(np.log(mixture.weight)),
             meta["log_likelihood"],
             slogdet,
-            -meta["log_likelihood"] - (D+2)/2.0 * np.sum(np.log(np.linalg.det(mixture.covariance)))
+            -meta["log_likelihood"] + (D+2)/2.0 * slogdet
         ])
         # TODO: Remove predictors that  we don't use.
         self._slogs.append(np.linalg.det(mixture.covariance))
@@ -542,8 +542,6 @@ class GaussianMixture(BaseGaussianMixture):
 
         ll_expectation, ll_scatter \
             = self._approximate_sum_log_likelihood(**kwds)
-
-
         sldc_expectation, sldc_scatter \
             = self._approximate_sum_log_det_covariances(**kwds)
 
@@ -561,6 +559,15 @@ class GaussianMixture(BaseGaussianMixture):
                 - np.sum(slogdet)) \
             - ll_expectation + current_ll
 
+
+        dI_expectation = dK * (
+            (1 - D/2.0)*np.log(2) + 0.25 * (D*(D+3) + 2)*np.log(N/(2*np.pi))) \
+            + 0.5 * (D*(D+3)/2 - 1) * (slw_expectation - np.sum(np.log(self.weight))) \
+            - np.sum([np.log(current_K + dk) for dk in range(dK)]) \
+            + 0.5 * np.log(_total_parameters(K, D)/float(_total_parameters(current_K, D))) \
+            - (D + 2)/2.0 * (np.sum(slogdet)) \
+            + current_ll + nll_mslogdetcov_expectation
+
         scatter_I = ((sldc_scatter**2 * (D + 2)/2.0) + ll_scatter**2)**0.5
 
         lower_delta_I = dK * (
@@ -573,7 +580,8 @@ class GaussianMixture(BaseGaussianMixture):
                 - np.sum(slogdet)) \
             - ll_expectation + current_ll
 
-        return (delta_I, scatter_I, lower_delta_I)
+        print("delta, :", delta_I, dI_expectation)
+        return (dI_expectation[0], scatter_I, lower_delta_I)
 
 
     def _approximate_sum_log_weights(self, target_K, predictors=None):
@@ -642,9 +650,70 @@ class GaussianMixture(BaseGaussianMixture):
 
             -\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{}K}w_{k}f_{k}(y_{n}|\mu_k,C_k) - \frac{(D + 2)}{2}\sum_{k=1}^{(K + \Delta{}K)}\log{|C_k|^{(K+\Delta{}K)}}
         """
-        return None, None
 
-        raise a
+        if predictors is None:
+            predictors = np.array(self._mixture_predictors)
+
+        k, y = (predictors.T[0], predictors.T[-1])
+
+        k = np.unique(predictors.T[0])
+        y = np.empty(k.shape)
+        yerr = np.empty(k.shape)
+
+        for i, k_ in enumerate(k):
+            match = (predictors.T[0] == k_)
+            values = predictors.T[-1][match]
+            y[i] = np.median(values)
+            yerr[i] = np.std(values)
+
+        yerr[0] = yerr[1]
+
+        #f = lambda x, *p: np.polyval(p, 1.0/x)
+        f = lambda x, *p: p[0] * np.log(x) + p[1]
+        p0 = [1, 0]
+        #p0 = np.hstack([1, np.zeros(min(k.size - 2, 3))])
+
+        exp_params, exp_cov = op.curve_fit(f, k, y, 
+            p0=p0, sigma=yerr, absolute_sigma=True)
+
+        
+        if target_K == 16:
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots()
+
+            ax.scatter(k, y)
+            ax.fill_between(k, y - yerr, y + yerr, alpha=0.5, zorder=-1)
+
+            exp_params, exp_cov = op.curve_fit(
+            f, k, y, p0=p0, sigma=yerr, absolute_sigma=True)
+
+            ax.plot(k, f(k, *exp_params))
+
+            for i in range(5, k.size + 1):
+
+                exp_params, exp_cov = op.curve_fit(
+                f, k[:i], y[:i], p0=p0, sigma=yerr[:i], absolute_sigma=True)
+                ax.plot(k[i:] + 1, [f(_, *exp_params) for _ in k[i:] + 1], c="g")
+                v = np.array([f(_, *exp_params) for _ in k[i:] + 1])
+
+                stds = np.array([np.std(f(_, *(np.random.multivariate_normal(exp_params, exp_cov, size=100).T))) for _ in k[i:] + 1])
+                assert np.all(np.isfinite(stds))
+                ax.fill_between(k[i:] + 1, v - stds, v + stds, facecolor="g",
+                    alpha=0.5)
+
+                plt.show()
+
+            raise a
+
+        target_K = np.atleast_1d(target_K)
+        expectation = np.array([f(tk, *exp_params) for tk in target_K])
+        variance = np.array([np.var(f(tk, 
+            *(np.random.multivariate_normal(exp_params, exp_cov, size=100).T)))
+            for tk in target_K])
+
+        print(expectation, variance)
+        return (expectation, variance)
+
 
     def _approximate_sum_log_likelihood(self, target_K, predictors=None,
         samples=30):
@@ -786,7 +855,7 @@ class GaussianMixture(BaseGaussianMixture):
             K = self.weight.size
             best_perturbation = []
             for k in range(K):
-                perturbation = self._propose_split_mixture(y, R, k)
+                perturbation = self._propose_split_mixtures(y, R, k)
                 if k == 0 \
                 or best_perturbation[-1] > perturbation[-1]:
                     best_perturbation = [k] + list(perturbation)
