@@ -424,13 +424,16 @@ class GaussianMixture(BaseGaussianMixture):
                 y, responsibility=responsibility)
 
         # Store the mixture.
+        slogdet = np.sum(np.log(np.linalg.det(mixture.covariance)))
         self._proposed_mixtures.append(mixture)
         self._mixture_predictors.append([
             mixture.weight.size,
             np.sum(np.log(mixture.weight)),
             meta["log_likelihood"],
-            np.sum(np.log(np.linalg.det(mixture.covariance)))
+            slogdet,
+            -meta["log_likelihood"] - (D+2)/2.0 * np.sum(np.log(np.linalg.det(mixture.covariance)))
         ])
+        # TODO: Remove predictors that  we don't use.
         self._slogs.append(np.linalg.det(mixture.covariance))
 
         return (len(self._proposed_mixtures) - 1, R, meta)
@@ -527,11 +530,19 @@ class GaussianMixture(BaseGaussianMixture):
         kwds = dict(target_K=K, predictors=predictors)
 
         dK = K - current_K
+
+        slw_expectation, slw_variance, slw_upper \
+            = self._approximate_sum_log_weights(**kwds)
+
+        # Now approximate the sum of the negative log-likelihood, minus the
+        # sum of the log of the determinant of the covariance matrices.
+        nll_mslogdetcov_expectation, nll_mslogdetcov_variance \
+            = self._approximate_nll_mslogdetcov(**kwds)
+
+
         ll_expectation, ll_scatter \
             = self._approximate_sum_log_likelihood(**kwds)
 
-        slw_expectation, slw_lower, slw_upper \
-            = self._approximate_sum_log_weights(**kwds)
 
         sldc_expectation, sldc_scatter \
             = self._approximate_sum_log_det_covariances(**kwds)
@@ -593,11 +604,11 @@ class GaussianMixture(BaseGaussianMixture):
         upper = -target_K * np.log(target_K)
 
         # Some expectation value.
-        if 3 > len(k):
+        if 2 > len(k):
             # Don't provide an expectation value.
-            fexpectation = None
-            variance = None
-            lower = None
+            expectation = upper
+            variance = 0.0
+            print("WRONG SUM LOG WEIGHTS")
 
         else:
             lower_values = [[k[0], slw[0]]]
@@ -610,17 +621,30 @@ class GaussianMixture(BaseGaussianMixture):
 
             function = lambda x, *p: -x * p[0] * np.log(x) + p[1]
 
-            # Lower bound.
-            lower_params, lower_cov = op.curve_fit(
+            # Expectation, from the best that can be done.
+            exp_params, exp_cov = op.curve_fit(
                 function, lower_values.T[0], lower_values.T[1], p0=[1, 0])
-            lower = function(target_K, *lower_params)
-
-            # Expectation.
-            exp_params, exp_cov = op.curve_fit(function, k, slw, p0=[1, 0])
             expectation = function(target_K, *exp_params)
 
-        return (expectation, lower, upper)
+            #exp_params, exp_cov = op.curve_fit(function, k, slw, p0=[1, 0])
+            #expectation = function(target_K, *exp_params)
 
+        variance = 0.0
+
+        return (expectation, variance, upper)
+
+
+    def _approximate_nll_mslogdetcov(self, target_K, predictors=None):
+        r"""
+        Approximate the function:
+
+        .. math:
+
+            -\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{}K}w_{k}f_{k}(y_{n}|\mu_k,C_k) - \frac{(D + 2)}{2}\sum_{k=1}^{(K + \Delta{}K)}\log{|C_k|^{(K+\Delta{}K)}}
+        """
+        return None, None
+
+        raise a
 
     def _approximate_sum_log_likelihood(self, target_K, predictors=None,
         samples=30):
@@ -807,6 +831,10 @@ class GaussianMixture(BaseGaussianMixture):
                 facecolor="r", alpha=0.5)
             ax.add_artist(ellip)
             ax.scatter([mean[0]], [mean[1]], facecolor="r")
+
+        fig, ax = plt.subplots()
+        foo = np.array(self._mixture_predictors)
+        ax.scatter(foo.T[0], -foo.T[2] - foo.T[3])
 
         raise a
 
