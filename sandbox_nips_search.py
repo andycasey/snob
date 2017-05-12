@@ -26,7 +26,7 @@ cov = np.array([
     ],
     [
         [2, -1],
-        [-1, 2]
+        [-1, 2] 
     ],
     [
         [0.125, 0],
@@ -41,7 +41,9 @@ y = np.vstack([np.random.multivariate_normal(
 
 
 
-y = np.loadtxt("cluster_example.txt")
+#y = np.loadtxt("cluster_example.txt")
+
+#y = np.loadtxt("birch3.txt")
 
 
 #n_samples = 500

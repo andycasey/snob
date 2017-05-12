@@ -16,6 +16,7 @@ import scipy
 import scipy.stats as stats
 import scipy.optimize as op
 from collections import defaultdict
+from sklearn.cluster import k_means_ as kmeans
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +132,8 @@ class BaseGaussianMixture(object):
     parameter_names = ("mean", "covariance", "weight")
 
     def __init__(self, covariance_type="full", covariance_regularization=0, 
-        mixture_probability=1e-3, threshold=1e-5, max_em_iterations=10000, 
-        **kwargs):
+        mixture_probability=1e-3, percent_scatter=1, predict_mixtures=3,
+        threshold=1e-3, max_em_iterations=10000, **kwargs):
 
         available = ("full", "diag", )
         covariance_type = covariance_type.strip().lower()
@@ -153,6 +154,8 @@ class BaseGaussianMixture(object):
 
         self._threshold = threshold
         self._mixture_probability = mixture_probability
+        self._percent_scatter = percent_scatter
+        self._predict_mixtures = predict_mixtures
         self._max_em_iterations = max_em_iterations
         self._covariance_type = covariance_type
         self._covariance_regularization = covariance_regularization
@@ -303,6 +306,8 @@ class BaseGaussianMixture(object):
             change = (lls - prev_ll)/prev_ll
             ll_dl.append([lls, dl])
 
+            #print("E-M", iteration, change, self.threshold)
+
             if abs(change) <= self.threshold:
                 break
 
@@ -352,8 +357,7 @@ class GaussianMixture(BaseGaussianMixture):
         # Do we want this from each E-M step, or all steps?
         # (K, sum_log_weights, sum_log_likelihood, sum_log_det_covariances)
         self._mixture_predictors = []
-        self._slogs = []
-
+        
 
     def _optimize_split_mixture(self, y, responsibility, component_index):
         r"""
@@ -434,7 +438,7 @@ class GaussianMixture(BaseGaussianMixture):
             -meta["log_likelihood"] + (D+2)/2.0 * slogdet
         ])
         # TODO: Remove predictors that  we don't use.
-        self._slogs.append(np.linalg.det(mixture.covariance))
+        #self._slogs.append(np.linalg.det(mixture.covariance))
 
         return (len(self._proposed_mixtures) - 1, R, meta)
 
@@ -506,7 +510,7 @@ class GaussianMixture(BaseGaussianMixture):
 
 
 
-    def _predict_message_length_change(self, N, K=None):
+    def _predict_message_length_change(self, K, N, lower_bound_sigma=5):
         r"""
         Predict the minimum message length of a target mixture of K Gaussian
         distributions, where K is an integer larger than the current mixture.
@@ -520,8 +524,9 @@ class GaussianMixture(BaseGaussianMixture):
         """
 
         current_K, D = self.mean.shape
-        K = current_K + 1 if K is None else int(K)
-        if current_K >= K:
+        #K = current_K + 1 if K is None else int(K)
+        K = np.atleast_1d(K)
+        if np.any(current_K >= K):
             raise ValueError(
                 "the target K mixture must contain more Gaussians than the "\
                 "current mixture ({} > {})".format(K, current_K))
@@ -531,57 +536,41 @@ class GaussianMixture(BaseGaussianMixture):
 
         dK = K - current_K
 
+
         slw_expectation, slw_variance, slw_upper \
             = self._approximate_sum_log_weights(**kwds)
 
         # Now approximate the sum of the negative log-likelihood, minus the
         # sum of the log of the determinant of the covariance matrices.
         nll_mslogdetcov_expectation, nll_mslogdetcov_variance \
-            = self._approximate_nll_mslogdetcov(**kwds)
-
-
-        ll_expectation, ll_scatter \
-            = self._approximate_sum_log_likelihood(**kwds)
-        sldc_expectation, sldc_scatter \
-            = self._approximate_sum_log_det_covariances(**kwds)
+            = self._approximate_nllpslogdetcov(**kwds)
 
         # Calculate the change in message length.
         current_ll = np.max(predictors.T[2][predictors.T[0] == current_K])
         sign, slogdet = np.linalg.slogdet(self.covariance)
 
-        delta_I = dK * (
-            (1 - D/2.0)*np.log(2) + 0.25 * (D*(D+3) + 2)*np.log(N/(2*np.pi))) \
-            + 0.5 * (D*(D+3)/2 - 1) * (slw_expectation - np.sum(np.log(self.weight))) \
-            - np.sum([np.log(current_K + dk) for dk in range(dK)]) \
-            + 0.5 * np.log(_total_parameters(K, D)/float(_total_parameters(current_K, D))) \
-            + (D + 2)/2.0 * (
-                sldc_expectation
-                - np.sum(slogdet)) \
-            - ll_expectation + current_ll
-
-
         dI_expectation = dK * (
             (1 - D/2.0)*np.log(2) + 0.25 * (D*(D+3) + 2)*np.log(N/(2*np.pi))) \
-            + 0.5 * (D*(D+3)/2 - 1) * (slw_expectation - np.sum(np.log(self.weight))) \
-            - np.sum([np.log(current_K + dk) for dk in range(dK)]) \
+            + 0.5 * (D*(D+3)/2.0 - 1) * (slw_expectation - np.sum(np.log(self.weight))) \
+            - np.array([np.sum(np.log(current_K + np.arange(_))) for _ in dK])\
             + 0.5 * np.log(_total_parameters(K, D)/float(_total_parameters(current_K, D))) \
             - (D + 2)/2.0 * (np.sum(slogdet)) \
             + current_ll + nll_mslogdetcov_expectation
+        
+        dI_scatter = nll_mslogdetcov_variance**0.5
 
-        scatter_I = ((sldc_scatter**2 * (D + 2)/2.0) + ll_scatter**2)**0.5
-
-        lower_delta_I = dK * (
+        dI_lower_bound = dK * (
             (1 - D/2.0)*np.log(2) + 0.25 * (D*(D+3) + 2)*np.log(N/(2*np.pi))) \
-            + 0.5 * (D*(D+3)/2 - 1) * (slw_upper - np.sum(np.log(self.weight))) \
-            - np.sum([np.log(current_K + dk) for dk in range(dK)]) \
+            + 0.5 * (D*(D+3)/2.0 - 1) * (slw_upper - np.sum(np.log(self.weight))) \
+            - np.array([np.sum(np.log(current_K + np.arange(_))) for _ in dK])\
             + 0.5 * np.log(_total_parameters(K, D)/float(_total_parameters(current_K, D))) \
-            + (D + 2)/2.0 * (
-                sldc_expectation
-                - np.sum(slogdet)) \
-            - ll_expectation + current_ll
+            - (D + 2)/2.0 * (np.sum(slogdet)) \
+            + current_ll + nll_mslogdetcov_expectation \
+            - lower_bound_sigma * dI_scatter
 
-        print("delta, :", delta_I, dI_expectation)
-        return (dI_expectation[0], scatter_I, lower_delta_I)
+        result = (dI_expectation, dI_scatter, dI_lower_bound)
+        return result if np.array(dK).size > 1 \
+                      else tuple([_[0] for _ in result])
 
 
     def _approximate_sum_log_weights(self, target_K, predictors=None):
@@ -609,14 +598,16 @@ class GaussianMixture(BaseGaussianMixture):
         k, slw = (predictors.T[0], predictors.T[1])
 
         # Upper bound.
-        upper = -target_K * np.log(target_K)
+        upper_bound = lambda k, c=0: -k * np.log(k) + c
+
+        #upper = -target_K * np.log(target_K)
 
         # Some expectation value.
         if 2 > len(k):
             # Don't provide an expectation value.
-            expectation = upper
-            variance = 0.0
-            print("WRONG SUM LOG WEIGHTS")
+            expectation = upper_bound(target_K)
+            variance \
+                = np.abs(upper_bound(target_K**2) - upper_bound(target_K)**2)
 
         else:
             lower_values = [[k[0], slw[0]]]
@@ -637,18 +628,19 @@ class GaussianMixture(BaseGaussianMixture):
             #exp_params, exp_cov = op.curve_fit(function, k, slw, p0=[1, 0])
             #expectation = function(target_K, *exp_params)
 
-        variance = 0.0
+            variance = 0.0
 
-        return (expectation, variance, upper)
+        return (expectation, variance, upper_bound(target_K))
 
 
-    def _approximate_nll_mslogdetcov(self, target_K, predictors=None):
+    def _approximate_nllpslogdetcov(self, target_K, predictors=None,
+        draws=100):
         r"""
         Approximate the function:
 
         .. math:
 
-            -\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{}K}w_{k}f_{k}(y_{n}|\mu_k,C_k) - \frac{(D + 2)}{2}\sum_{k=1}^{(K + \Delta{}K)}\log{|C_k|^{(K+\Delta{}K)}}
+            -\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{}K}w_{k}f_{k}(y_{n}|\mu_k,C_k) + \frac{(D + 2)}{2}\sum_{k=1}^{(K + \Delta{}K)}\log{|C_k|^{(K+\Delta{}K)}}
         """
 
         if predictors is None:
@@ -662,115 +654,254 @@ class GaussianMixture(BaseGaussianMixture):
 
         for i, k_ in enumerate(k):
             match = (predictors.T[0] == k_)
-            values = predictors.T[-1][match]
+            values = np.log(predictors.T[-1][match])
             y[i] = np.median(values)
             yerr[i] = np.std(values)
 
-        yerr[0] = yerr[1]
+        # The zero-th entry of yerr occurs when K = 2, and we only have one
+        # estimate of y, so the std is zero.
+        #yerr[0] = yerr[1]
+        yerr[yerr==0] = np.max(yerr)
 
+        f = lambda x, *p: np.polyval(p, x)
+        p0 = np.zeros(2)
+        #p0 = np.array([-1, y[0]])
+        
         #f = lambda x, *p: np.polyval(p, 1.0/x)
-        f = lambda x, *p: p[0] * np.log(x) + p[1]
-        p0 = [1, 0]
         #p0 = np.hstack([1, np.zeros(min(k.size - 2, 3))])
 
-        exp_params, exp_cov = op.curve_fit(f, k, y, 
+        op_params, op_cov = op.curve_fit(f, k, y, 
             p0=p0, sigma=yerr, absolute_sigma=True)
-
-        
-        if target_K == 16:
+        """
+        if target_K[0] >= 16:
             import matplotlib.pyplot as plt
+
             fig, ax = plt.subplots()
 
             ax.scatter(k, y)
             ax.fill_between(k, y - yerr, y + yerr, alpha=0.5, zorder=-1)
 
-            exp_params, exp_cov = op.curve_fit(
+            op_params, op_cov = op.curve_fit(
             f, k, y, p0=p0, sigma=yerr, absolute_sigma=True)
 
-            ax.plot(k, f(k, *exp_params))
+            ax.plot(k, f(k, *op_params))
 
-            for i in range(5, k.size + 1):
+            for i in range(4, k.size + 1):
 
-                exp_params, exp_cov = op.curve_fit(
+                op_params, op_cov = op.curve_fit(
                 f, k[:i], y[:i], p0=p0, sigma=yerr[:i], absolute_sigma=True)
-                ax.plot(k[i:] + 1, [f(_, *exp_params) for _ in k[i:] + 1], c="g")
-                v = np.array([f(_, *exp_params) for _ in k[i:] + 1])
+                ax.plot(k[i:] + 1, [f(_, *op_params) for _ in k[i:] + 1], c="g")
+                v = np.array([f(_, *op_params) for _ in k[i:] + 1])
 
-                stds = np.array([np.std(f(_, *(np.random.multivariate_normal(exp_params, exp_cov, size=100).T))) for _ in k[i:] + 1])
+                stds = np.array([np.std(f(_, *(np.random.multivariate_normal(op_params, op_cov, size=100).T))) for _ in k[i:] + 1])
                 assert np.all(np.isfinite(stds))
                 ax.fill_between(k[i:] + 1, v - stds, v + stds, facecolor="g",
                     alpha=0.5)
 
-                plt.show()
+
+            
+            #log_y = np.empty(k.shape)
+            #log_yerr = np.empty(k.shape)
+
+            #for i, k_ in enumerate(k):
+            #    match = (predictors.T[0] == k_)
+            #    values = np.log(predictors.T[-1][match])
+            #    y[i] = np.median(values)
+            #    yerr[i] = np.std(values)
+
+            #fig, ax = plt.subplots()
+            #ax.scatter(k, y)
+            #ax.scatter(k, y + yerr, facecolor="g")
+
+
+
+            raise a
+        """
+
+        exp_f = lambda x, *p: np.exp(f(x, *p))
+
+        target_K = np.atleast_1d(target_K)
+        expectation = np.array([exp_f(tk, *op_params) for tk in target_K])
+        
+        if not np.all(np.isfinite(op_cov)):
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots()
+
+            x = k
+            ax.scatter(x, y)
+            ax.scatter(x, y + yerr, facecolor="g")
+            ax.plot(x, f(x, *op_params), c='r')
+
+            fig, ax = plt.subplots()
+            ax.scatter(x, np.exp(y))
+            ax.scatter(x, np.exp(y + yerr), facecolor='g')
+
+            ax.plot(target_K, expectation, c='r')
+            ax.plot(x, exp_f(x, *op_params), c='m')
+            variance = np.array([np.var(exp_f(tk, 
+                *(np.random.multivariate_normal(op_params, op_cov, size=draws).T)))
+                for tk in target_K])
+            ax.fill_between(target_K, expectation - variance**0.5, expectation + variance**0.5, facecolor='r', alpha=0.5)
 
             raise a
 
-        target_K = np.atleast_1d(target_K)
-        expectation = np.array([f(tk, *exp_params) for tk in target_K])
-        variance = np.array([np.var(f(tk, 
-            *(np.random.multivariate_normal(exp_params, exp_cov, size=100).T)))
+        variance = np.array([np.var(exp_f(tk, 
+            *(np.random.multivariate_normal(op_params, op_cov, size=draws).T)))
             for tk in target_K])
 
-        print(expectation, variance)
+
+        """
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        x = k
+        ax.scatter(x, np.exp(y))
+        ax.scatter(x, np.exp(y + yerr), facecolor='g')
+
+        ax.plot(target_K, expectation, c='r')
+        ax.fill_between(target_K, expectation - variance**0.5, expectation + variance**0.5, facecolor='r', alpha=0.5)
+        raise a
+        """
+
         return (expectation, variance)
 
 
-    def _approximate_sum_log_likelihood(self, target_K, predictors=None,
-        samples=30):
+    def _ftl_jump(self, y, K, **kwargs):
+        r"""
+        Jump to a totally new mixture of K number of gaussians.
+        """
 
-        if predictors is None:
-            predictors = np.array(self._mixture_predictors)
+        logger.debug("Re-initializing with K-means++ at K = {}".format(K))
 
-        k, ll = (predictors.T[0], predictors.T[2])
+        # Initialize new centroids by k-means++
+        mean = kmeans._k_init(y, K, kmeans.row_norms(y, squared=True),
+            kmeans.check_random_state(None))
 
-        upper_values = [[k[0], ll[0]]]
-        for k_, ll_ in zip(k[1:], ll[1:]):
-            if k_ == upper_values[-1][0] and ll_ > upper_values[-1][1]:
-                upper_values[-1][1] = ll_
-            elif k_ > upper_values[-1][0]:
-                upper_values.append([k_, ll_])
-        upper_values = np.array(upper_values)
+        # Calculate weights by L2 distances to closest centers.
+        distance = np.sum((y[:, :, None] - mean.T)**2, axis=1).T
+
+        N, D = y.shape
+        responsibility = np.zeros((K, N))
+        responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
+
+        weight = responsibility.sum(axis=1)/N
+
+        covariance = _estimate_covariance_matrix(y, responsibility, mean,
+            self.covariance_type, self.covariance_regularization)
+
+        mixture = self.__class__(
+            threshold=self.threshold,
+            covariance_type=self.covariance_type,
+            max_em_iterations=self.max_em_iterations,
+            covariance_regularization=self.covariance_regularization)
+
+        # Initialize it.
+        mixture.set_parameters(mean=mean, weight=weight, covariance=covariance)
+
+        # Run E-M on the partial mixture.
+        R, meta = mixture._expectation_maximization(
+            y, parent_responsibility=responsibility)
+
+        slogdet = np.sum(np.log(np.linalg.det(mixture.covariance)))
+        self._proposed_mixtures.append(mixture)
+        self._mixture_predictors.append([
+            mixture.weight.size,
+            np.sum(np.log(mixture.weight)),
+            meta["log_likelihood"],
+            slogdet,
+            -meta["log_likelihood"] + (D+2)/2.0 * slogdet
+        ])
+        # TODO: Remove predictors that  we don't use.
+        #self._slogs.append(np.linalg.det(mixture.covariance))
+
+        return mixture, R, meta #(len(self._proposed_mixtures) - 1, R, meta)
+
+
+        raise a
+
+        #self.set_parameters(
+        #    weight=weight, mean=mean, covariance=covariance)
+
+        #return responsibility
+
+
+
+
+    def _merge_component_with_closest_component(self, y, responsibility, index, **kwargs):
+
         
-        function = lambda x, *p: p[0] * np.log(x) + p[1]
 
-        # Return an expectation and a variance.
-        x, y = upper_values.T
-        op_params, op_cov = op.curve_fit(function, x, y, p0=np.ones(2),
-            maxfev=100000)
+        R, meta, mixture = _merge_components(y, self.mean, self.covariance, self.weight,
+            responsibility, index, index_b, **kwargs)
 
-        expectation = function(target_K, *op_params)
-
-        if np.all(np.isfinite(op_cov)):
-            scatter = np.std(function(target_K, 
-                *(np.random.multivariate_normal(op_params, op_cov, size=samples).T)))
-
-        else:
-            scatter = 0
-
-        return (expectation, scatter)
+        return mixture, R, meta
 
 
-    def _approximate_sum_log_det_covariances(self, target_K, predictors=None):
+    def _optimize_merge_mixture(self, y, responsibility, a_index):
 
-        if predictors is None:
-            predictors = np.array(self._mixture_predictors)
-        
-        # Only take estimates from the most recent K.
-        x, y = predictors.T[0], predictors.T[3]
-        idx = 1 + np.where(np.diff(x) > 0)[0][::-1][0]
-        
-        K = float(x[idx])
+        b_index = _index_of_most_similar_component(y, 
+            self.mean, self.covariance, a_index)
 
-        prediction = []
-        for xi, yi in zip(x[idx:], self._slogs[idx:]):
-            vals = np.array(yi) * float(K)/target_K
-            vals = np.hstack([vals, np.median(vals)])
-            prediction.append(np.sum(np.log(vals)))
 
-        expectation, scatter = (np.median(prediction), np.std(prediction))
-        # TODO: vectorize for target_K
+        # Initialize.
+        weight_k = np.sum(self.weight[[a_index, b_index]])
+        responsibility_k = np.sum(responsibility[[a_index, b_index]], axis=0)
+        effective_membership_k = np.sum(responsibility_k)
 
-        return expectation, scatter
+        mean_k = np.sum(responsibility_k * y.T, axis=1) / effective_membership_k
+        covariance_k = _estimate_covariance_matrix(
+            y, np.atleast_2d(responsibility_k), np.atleast_2d(mean_k), 
+            self.covariance_type, self.covariance_regularization)
+
+        # Delete the b-th component.
+        del_index = np.max([a_index, b_index])
+        keep_index = np.min([a_index, b_index])
+
+        new_mean = np.delete(self.mean, del_index, axis=0)
+        new_covariance = np.delete(self.covariance, del_index, axis=0)
+        new_weight = np.delete(self.weight, del_index, axis=0)
+        new_responsibility = np.delete(responsibility, del_index, axis=0)
+
+        new_mean[keep_index] = mean_k
+        new_covariance[keep_index] = covariance_k
+        new_weight[keep_index] = weight_k
+        new_responsibility[keep_index] = responsibility_k
+
+
+        mixture = self.__class__(
+            threshold=1e-3, # MAGICself.threshold,
+            covariance_type=self.covariance_type,
+            max_em_iterations=self.max_em_iterations,
+            covariance_regularization=self.covariance_regularization)
+
+        mixture.set_parameters(mean=new_mean, weight=new_weight,
+            covariance=new_covariance)
+
+        R, meta = mixture._expectation_maximization(
+                y, responsibility=new_responsibility)
+
+        #R, ll, I = mixture._expectation(y)
+        #meta = {"log_likelihood": ll.sum(), "message_length": I}
+
+
+        N, D = y.shape
+        # Store the mixture.
+        slogdet = np.sum(np.log(np.linalg.det(mixture.covariance)))
+        self._proposed_mixtures.append(mixture)
+        self._mixture_predictors.append([
+            mixture.weight.size,
+            np.sum(np.log(mixture.weight)),
+            meta["log_likelihood"],
+            slogdet,
+            -meta["log_likelihood"] + (D+2)/2.0 * slogdet
+        ])
+        # TODO: Remove predictors that  we don't use.
+        #self._slogs.append(np.linalg.det(mixture.covariance))
+
+        return (len(self._proposed_mixtures) - 1, R, meta)
+
+        raise a
+
 
 
     def search(self, y, **kwargs):
@@ -784,66 +915,337 @@ class GaussianMixture(BaseGaussianMixture):
             the number of dimensions per observation.
         """
 
+        # Initialize.
+
+        # --> Start on "splitting_mode"
+
+        # --> If we hyperjump, then try merging mode.
+
+
         N, D = y.shape
 
         # Initialize the mixture.
         self._initialize_parameters(y, **kwargs)
         R, ll, I = self._expectation(y, **kwargs)
 
-        converged = False
+        converged, just_jumped = (False, False)
 
         while not converged:
 
             while True:
 
+                K = self.weight.size
+                logger.debug("State: {} {}".format(K, I))
+
+                if just_jumped:
+
+                    
+                    # Try to merge components.
+                    best_merge = []
+                    for k in range(K):
+                        try:
+                            idx, _, meta = self._optimize_merge_mixture(y, R, k)
+                        except:
+                            continue
+
+                        logger.debug("Merging: {} {} {}".format(K, k, meta))
+
+                        if k == 0 \
+                        or best_merge[-1] > meta["message_length"]:
+                            best_merge = [idx, meta["message_length"]]
+
+                        # TODO: Run E-M each time?
+
+                    if best_merge[-1] < I:
+
+                        idx, I = best_merge
+                        mixture = self._proposed_mixtures[idx]
+
+                        self.set_parameters(**mixture.parameters)
+
+                        R, ll, I = self._expectation(y, **kwargs)
+
+                        # TODO: Consider hyperjump?
+                        continue
+
+                    else:
+                        just_jumped = False
+
+                else:
+                    # Split all components.
+                    best_split = []
+                    for k in range(K):
+                        idx, _, meta = self._optimize_split_mixture(y, R, k)
+
+                        logger.debug("Splitting: {} {} {}".format(K, k, meta))
+
+                        if k == 0 \
+                        or best_split[-1] > meta["message_length"]:
+                            best_split = [idx, meta["message_length"]]
+
+
+                    if best_split[-1] < I:
+                        idx, I = best_split
+                        mixture = self._proposed_mixtures[idx]
+
+                        self.set_parameters(**mixture.parameters)
+
+                        R, ll, I = self._expectation(y, **kwargs)
+
+                    else:
+                        converged = True
+                        break
+
+                    # Consider hyperjump.
+                    if self.weight.size > 2:
+
+                        K = self.weight.size
+                        K_dK = K + np.arange(1, self._predict_mixtures)
+
+                        dI, pI_scatter, dI_lower \
+                            = self._predict_message_length_change(K_dK, N)
+                        pI = I + dI
+
+                        logger.debug("Actual: {}".format(I))
+                        logger.debug("Prediction for next mixture: {}".format(I + dI[0]))
+                        logger.debug("Predicted lower bound for next mixture: {}".format(I + dI_lower[0]))
+                        logger.debug("Predicted delta for next mixture: {} {}".format(dI[0], pI_scatter[0]))
+                        logger.debug("K = {}".format(self.weight.size))
+
+
+                        ommp = 1 - self._mixture_probability
+                        acceptable_jump \
+                            = (abs(100 * pI_scatter/pI) < self._percent_scatter) \
+                            * (stats.norm(dI, pI_scatter).cdf(0) > self._mixture_probability) 
+
+                        #= (stats.norm(pI, pI_scatter).cdf(I) < ommp) \
+                        
+                        if dI[0]/pI_scatter[0] < -10 \
+                        and not any(acceptable_jump):
+                            raise a
+
+                        if any(acceptable_jump):
+                        
+                            K_jump = K_dK[np.where(acceptable_jump)[0]]
+                            # If the jumps are noisy, be conservative.
+                            idx = np.where(np.diff(K_jump) > 1)[0]
+                            idx = idx[0] if idx else -1
+
+                            K_jump = K_jump[idx]
+
+                            if K_jump - K > 1:
+
+                                logger.debug(
+                                    "We should JUMP to K = {}!".format(K_jump))
+                                mixture, _, meta = self._ftl_jump(y, K_jump)
+                                logger.debug("New meta: {}".format(meta))
+
+                                if meta["message_length"] < I:
+
+                                    # Set the current mixture.
+                                    self.set_parameters(**mixture.parameters)
+                                    R, ll, I = self._expectation(y, **kwargs)
+                                    just_jumped = True
+
+
+                                else:
+                                    #This is a bad jump, so don't accept it.
+                                    None
+
+                                
+
+                    # I think we are converged.
+                    elif best_split[-1] > I:
+                        converged = True
+                        break
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        K = self.weight.size
+        K_dK = K + np.arange(1, self._predict_mixtures)
+
+        dI, pI_scatter, dI_lower \
+                            = self._predict_message_length_change(K_dK, N)
+        pI = I + dI     
+
+        ax.scatter(K_dK, pI)
+        ax.scatter(K_dK, pI + dI_lower, facecolor="r")
+
+        raise a
+
+        fig, axes = plt.subplots(2)
+        axes[0].scatter(y.T[0], y.T[1])
+        axes[1].scatter(y.T[0], y.T[2])
+
+
+        raise a
+
+        """
+                # Delete all components.
+                K = self.weight.size
+                best_merge = []
+                if K > 2:
+                    # TODO: Some heuristic just to say only try merge if we
+                    # hyperjumped?
+
+                    for k in range(K):
+                        idx, _, meta = self._optimize_merge_mixture(y, R, k)
+
+                        print("k", k, meta)
+
+                        if k == 0 \
+                        or best_merge[-1] > meta["message_length"]:
+                            best_merge = [idx, meta["message_length"]]
+
+                        
                 # Split all components, and run partial E-M on each.
                 K = self.weight.size
                 best_perturbation = []
 
+                hyperjump = False
                 for k in range(K):
                     # Split the mixture, run partial E-M then full E-M.
                     idx, _, meta = self._optimize_split_mixture(y, R, k)
 
-                    logger.debug("partial EM {} {} {} {}".format(K, k, idx, meta))
+                    logger.debug(
+                        "partial EM {} {} {} {}".format(K, k, idx, meta))
+
+                    # FTL jump!
+                    if k > 0 and self.weight.size > 2:
+
+                        K = self.weight.size
+                        K_dK = K + np.arange(1, self._predict_mixtures)
+
+                        dI, pI_scatter, dI_lower \
+                            = self._predict_message_length_change(K_dK, N)
+                        pI = I + dI
+
+                        logger.debug("Actual: {}".format(I))
+                        logger.debug("Prediction for next mixture: {}".format(I + dI[0]))
+                        logger.debug("Predicted lower bound for next mixture: {}".format(I + dI_lower[0]))
+                        logger.debug("Predicted delta for next mixture: {} {}".format(dI[0], pI_scatter[0]))
+                        logger.debug("K = {}".format(self.weight.size))
+
+
+                        ommp = 1 - self._mixture_probability
+                        acceptable_jump \
+                            = (abs(100 * pI_scatter/pI) < self._percent_scatter) \
+                            * (stats.norm(dI, pI_scatter).cdf(0) < ommp) 
+
+                        #= (stats.norm(pI, pI_scatter).cdf(I) < ommp) \
+                        
+                        if any(acceptable_jump):
+                        
+
+                            K_jump = K_dK[np.where(acceptable_jump)[0]]
+                            # If the jumps are noisy, be conservative.
+                            idx = np.where(np.diff(K_jump) > 1)[0]
+                            idx = idx[0] if idx else -1
+
+                            K_jump = K_jump[idx]
+
+                            raise a
+
+
+                            if K_jump - K > 1:
+
+                                logger.debug(
+                                    "We should JUMP to K = {}!".format(K_jump))
+                                mixture, R, meta = self._ftl_jump(y, K_jump)
+
+                                logger.debug("New meta: {}".format(meta))
+
+                                # Set the current mixture.
+                                self.set_parameters(**mixture.parameters)
+                                R, ll, I = self._expectation(y, **kwargs)
+
+
+                                hyperjump = True
+                                break
+
+
                     if k == 0 \
                     or best_perturbation[-1] > meta["message_length"]:
                         best_perturbation = [idx, meta["message_length"]]
 
+                if hyperjump:
+                    print("Hyperjump EARLY!")
+                    continue
+
                 # Is the best perturbation better than the current mixture?
-                if best_perturbation[-1] < I:
+                if best_perturbation[-1] < I and (len(best_merge) == 0 or best_perturbation[-1] < best_merge[-1]):
+
                     idx, I = best_perturbation
                     mixture = self._proposed_mixtures[idx]
 
                     self.set_parameters(**mixture.parameters)
-                    # Take this mixture, and calculate a pdf for the next mixture.
+
+                elif len(best_merge) > 0 and best_merge[-1] < I and best_merge[-1] < best_perturbation[-1]:
+
+                    idx, I = best_merge
+                    mixture = self._proposed_mixtures[idx]
+                    self.set_parameters(**mixture.parameters)
                     
                 else:
                     # All split perturbations had longer message lengths.
                     converged = True
+                    logger.debug(
+                        "All split perturbations had longer message lengths.")
                     break
 
                 # To update message length, max log likelihood tec
                 # TODO refactor
                 R, ll, I = self._expectation(y, **kwargs)
 
-                # Only start making predictions when we have a few clusters.
-                # TODO: Make this more flexible so that we go from first time.
+                # Only start making predictions when we have some data.
                 if self.weight.size > 2:
 
-                    change, scatter, lower = self._predict_message_length_change(N)
-                    
-                    logger.debug("Actual: {}".format(I))
-                    logger.debug("Prediction for next mixture: {}".format(I + change))
-                    logger.debug("Predicted lower bound for next mixture: {}".format(I + lower))
-                    logger.debug("Predicted delta for next mixture: {} {}".format(change, scatter))
+                    K = self.weight.size
+                    K_dK = K + np.arange(1, self._predict_mixtures)
 
+                    dI, pI_scatter, dI_lower \
+                        = self._predict_message_length_change(K_dK, N)
+                    pI = I + dI
+
+                    logger.debug("Actual: {}".format(I))
+                    logger.debug("Prediction for next mixture: {}".format(I + dI[0]))
+                    logger.debug("Predicted lower bound for next mixture: {}".format(I + dI_lower[0]))
+                    logger.debug("Predicted delta for next mixture: {} {}".format(dI[0], pI_scatter[0]))
                     logger.debug("K = {}".format(self.weight.size))
 
-                    if stats.norm(change, scatter).cdf(0) > self._mixture_probability:
-                        logger.debug("WE SHOULD SPLIT")
+
+                    ommp = 1 - self._mixture_probability
+                    acceptable_jump \
+                        = (abs(100 * pI_scatter/pI) < self._percent_scatter) \
+                        * (stats.norm(dI, pI_scatter).cdf(0) < ommp) 
+
+                    #= (stats.norm(pI, pI_scatter).cdf(I) < ommp) \
+                    
+                    if any(acceptable_jump):
+                    
+                        K_jump = K_dK[np.where(acceptable_jump)[0]]
+                        # If the jumps are noisy, be conservative.
+                        idx = np.where(np.diff(K_jump) > 1)[0]
+                        idx = idx[0] if idx else -1
+
+                        K_jump = K_jump[idx]
+
+                        if K_jump - K > 1:
+
+                            logger.debug(
+                                "We should JUMP to K = {}!".format(K_jump))
+                            mixture, R, meta = self._ftl_jump(y, K_jump)
+
+                            logger.debug("New meta: {}".format(meta))
+
+                            # Set the current mixture.
+                            self.set_parameters(**mixture.parameters)
+                            R, ll, I = self._expectation(y, **kwargs)
 
                     else:
-                        break
+                        # Just split to K+1
+                        continue
 
             if converged:
                 logger.debug("Skipping final sweep")
@@ -869,12 +1271,13 @@ class GaussianMixture(BaseGaussianMixture):
                 R, ll, I = self._expectation(y, **kwargs)
 
                 # Make a prediction for the next one either way.
-                pdf = self._predict_message_length_change(N)
+                pdf = self._predict_message_length_change(K + 1, N)
                 logger.debug("Prediction for next mixture: {}".format(pdf))
 
             else:
                 # Converged.
                 converged = True
+        """
 
 
         logger.debug("Ended at K = {}".format(self.weight.size))
@@ -1134,6 +1537,79 @@ def _message_length(y, mu, cov, weight, responsibility, nll,
             lattice=lattice, part1=part1, part2=part2))
 
     return I
+
+
+def _index_of_most_similar_component(y, mean, covariance, index):
+    r"""
+    Find the index of the most similar component, as judged by K-L divergence.
+    """
+    K, D = mean.shape
+    D_kl = np.inf * np.ones(K)
+    for k in range(K):
+        if k == index: continue
+        D_kl[k] = kullback_leibler_for_multivariate_normals(
+            mean[index], covariance[index], mean[index], covariance[index])
+
+    return np.nanargmin(D_kl)
+
+
+def _merge_component_with_closest_component(y, mean, covariance, weight,
+    responsibility, index, **kwargs):
+
+    index_b = _index_of_most_similar_component(y, mean, covariance, index)
+
+    return _merge_components(
+        y, mean, covariance, weight, responsibility, index, index_b, **kwargs)
+
+
+def _merge_components(y, mean, covariance, weight, responsibility, index_a,
+    index_b, **kwargs):
+    r"""
+    Merge a component from the mixture with its "closest" component, as
+    judged by the Kullback-Leibler distance.
+
+    :param y:
+        A :math:`N\times{}D` array of the observations :math:`y`,
+        where :math:`N` is the number of observations, and :math:`D` is the
+        number of dimensions per observation.
+    """
+
+    logger.debug("Merging component {} (of {}) with {}".format(
+        a_index, weight.size, b_index))
+
+    # Initialize.
+    weight_k = np.sum(weight[[a_index, b_index]])
+    responsibility_k = np.sum(responsibility[[a_index, b_index]], axis=0)
+    effective_membership_k = np.sum(responsibility_k)
+
+    mean_k = np.sum(responsibility_k * y.T, axis=1) / effective_membership_k
+    covariance_k = _estimate_covariance_matrix(
+        y, np.atleast_2d(responsibility_k), np.atleast_2d(mean_k), 
+        kwargs["covariance_type"], kwargs["covariance_regularization"])
+
+    # Delete the b-th component.
+    del_index = np.max([a_index, b_index])
+    keep_index = np.min([a_index, b_index])
+
+    new_mean = np.delete(mu, del_index, axis=0)
+    new_covariance = np.delete(cov, del_index, axis=0)
+    new_weight = np.delete(weight, del_index, axis=0)
+    new_responsibility = np.delete(responsibility, del_index, axis=0)
+
+    new_mean[keep_index] = mean_k
+    new_covariance[keep_index] = covariance_k
+    new_weight[keep_index] = weight_k
+    new_responsibility[keep_index] = responsibility_k
+
+    # Calculate log-likelihood.
+    # Generate a mixture.
+    mixture = GaussianMixture()
+
+    raise a
+
+    #return _expectation_maximization(y, new_mean, new_covariance, new_weight,
+    #    responsibility=new_responsibility,  **kwargs)
+
 
 
 def _compute_precision_cholesky(covariances, covariance_type):
