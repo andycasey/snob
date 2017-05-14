@@ -40,79 +40,29 @@ y = np.vstack([np.random.multivariate_normal(
     for i in range(len(weight))])
 
 
-
+#
 #y = np.loadtxt("cluster_example.txt")
 
-#y = np.loadtxt("birch3.txt")
-
-
-#n_samples = 500
-
-# Generate random sample, two components
-#np.random.seed(0)
-#C = np.array([[0., -0.1], [1.7, .4]])
-#X = np.r_[np.dot(np.random.randn(n_samples, 2), C),
-#          .7 * np.random.randn(n_samples, 2) + np.array([-6, 3])]
-#y = X
-
+y = np.loadtxt("s4.txt")
 
 #from sklearn import datasets
-#iris = datasets.load_iris()
-#y = iris.data
+#y, _ = datasets.make_blobs(n_samples=1000, n_features=2, centers=16)
 
-"""
-Approximating \sum\log{w_k}...
-
-bar = []
-for i in range(1, 101):
-
-    foo = np.random.uniform(size=(1000, i))
-    foo = foo.T/np.sum(foo, axis=1)
-    print(i)
-
-    mean = np.mean(np.log(foo).sum(axis=0))
-    std = np.std(np.log(foo).sum(axis=0))
-
-    bar.append([i, mean, std])
-
-    
-
-bar = np.array(bar)
-
-fig, ax = plt.subplots()
-ax.scatter(bar.T[0], bar.T[2])
-#ax.scatter(bar.T[0], bar.T[1])
-#ax.errorbar(bar.T[0], bar.T[1], bar.T[2], fmt=None)
-
-raise a
-"""
-
-"""
-# Approximating \log(\sum{r}) (the log of the effective memberships...)
-bar = []
-for i in range(1, 101):
-
-    foo = np.random.uniform(size=(1000, i))
-    foo = foo.T/np.sum(foo, axis=1)
-    foo *= 900 # The sample size, say.
-
-    mean = np.mean(np.log(foo).sum(axis=0))
-    std = np.std(np.log(foo).sum(axis=0))
-
-    bar.append([i, mean, std])
+#y = np.loadtxt("birch2.txt")
 
 
-bar = np.array(bar)
-
-fig, axes = plt.subplots(2)
-axes[0].scatter(bar.T[0], bar.T[1])
-axes[1].scatter(bar.T[0], bar.T[2])
-
-raise a
-"""
-
-search_model = mixture.GaussianMixture()
+search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=100)
 search_model.search(y)
+
+
+raise a
+
+# Generate some fake data
+N = 1000
+D = 2
+K = 16
+covariance_type = "full"
+
 
 
 
