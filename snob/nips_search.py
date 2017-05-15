@@ -775,33 +775,45 @@ class GaussianMixture(BaseGaussianMixture):
         logger.debug("Re-initializing with K-means++ at K = {}".format(K))
 
         # Initialize new centroids by k-means++
-        mean = kmeans._k_init(y, K, kmeans.row_norms(y, squared=True),
-            kmeans.check_random_state(None))
+        mixtures = []
+        mls = []
+        for z in range(30):
 
-        # Calculate weights by L2 distances to closest centers.
-        distance = np.sum((y[:, :, None] - mean.T)**2, axis=1).T
+            mean = kmeans._k_init(y, K, kmeans.row_norms(y, squared=True),
+                kmeans.check_random_state(None))
 
-        N, D = y.shape
-        responsibility = np.zeros((K, N))
-        responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
+            # Calculate weights by L2 distances to closest centers.
+            distance = np.sum((y[:, :, None] - mean.T)**2, axis=1).T
 
-        weight = responsibility.sum(axis=1)/N
+            N, D = y.shape
+            responsibility = np.zeros((K, N))
+            responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
 
-        covariance = _estimate_covariance_matrix(y, responsibility, mean,
-            self.covariance_type, self.covariance_regularization)
+            weight = responsibility.sum(axis=1)/N
 
-        mixture = self.__class__(
-            threshold=self.threshold,
-            covariance_type=self.covariance_type,
-            max_em_iterations=self.max_em_iterations,
-            covariance_regularization=self.covariance_regularization)
+            covariance = _estimate_covariance_matrix(y, responsibility, mean,
+                self.covariance_type, self.covariance_regularization)
 
-        # Initialize it.
-        mixture.set_parameters(mean=mean, weight=weight, covariance=covariance)
+            mixture = self.__class__(
+                threshold=self.threshold,
+                covariance_type=self.covariance_type,
+                max_em_iterations=self.max_em_iterations,
+                covariance_regularization=self.covariance_regularization)
 
-        # Run E-M on the partial mixture.
-        R, meta = mixture._expectation_maximization(
-            y, parent_responsibility=responsibility)
+            # Initialize it.
+            mixture.set_parameters(mean=mean, weight=weight, covariance=covariance)
+
+            # Run E-M on the partial mixture.
+            R, meta = mixture._expectation_maximization(
+                y, parent_responsibility=responsibility)
+            raise UnsureError
+
+            mixtures.append(mixture)
+            mls.append(meta["message_length"])
+
+        print(np.std(mls))
+        index = np.argmin(mls)
+        mixture = mixtures[index]
 
         #slogdet = np.sum(np.log(np.linalg.det(mixture.covariance)))
         slogdet = np.sum(_slogdet(mixture.covariance, mixture.covariance_type))
@@ -845,6 +857,8 @@ class GaussianMixture(BaseGaussianMixture):
         """
 
         K = self.weight.size
+        if K == 1: return ([])
+
         kl = np.inf * np.ones((K, K))
 
         for i in range(K):
@@ -857,11 +871,13 @@ class GaussianMixture(BaseGaussianMixture):
                     self.mean[i], self.covariance[i])
 
         # Best for each *from*.
-        indices = zip(*(np.arange(K), np.argsort(kl, axis=1).T[0]))
+        indices = list(zip(*(np.arange(K), np.argsort(kl, axis=1).T[0])))
 
         _ = np.array(indices).T
         sorted_indices = np.argsort(kl[_[0], _[1]])
         return tuple([indices[_] for _ in sorted_indices if indices[_][0] != indices[_][1]])
+
+        return foo
 
 
     def _optimize_merge_mixture(self, y, responsibility, a_index):
@@ -1133,7 +1149,7 @@ class GaussianMixture(BaseGaussianMixture):
                     break
 
 
-                if just_jumped:
+                if just_jumped or K > 1:
 
                     
                     # Try to merge components.
@@ -1193,6 +1209,7 @@ class GaussianMixture(BaseGaussianMixture):
                     else:
                         converged = True
                         break
+
 
                     # Consider hyperjump.
                     if self.weight.size > 2:

@@ -1,6 +1,6 @@
 
 import numpy as np
-from snob import nips_search as mixture
+from snob import nips_search2 as mixture
 
 
 
@@ -43,16 +43,17 @@ y = np.vstack([np.random.multivariate_normal(
 #
 #y = np.loadtxt("cluster_example.txt")
 
-y = np.loadtxt("s4.txt")
+#y = np.loadtxt("s4.txt")
 
-#from sklearn import datasets
-#y, _ = datasets.make_blobs(n_samples=1000, n_features=2, centers=16)
+from sklearn import datasets
+y, _ = datasets.make_blobs(n_samples=1000, n_features=30, centers=10,
+  cluster_std=0.5, center_box=(-100, 100))
 
 #y = np.loadtxt("birch2.txt")
 
 
-search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=100)
-search_model.search(y)
+search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=1)
+search_model.growing_search(y)
 
 
 raise a
