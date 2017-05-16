@@ -7,10 +7,10 @@
 % to avoid loading the natbib package, add option nonatbib:
 % \usepackage[nonatbib]{nips_2017}
 
-\usepackage{nips_2017}
+%\usepackage{nips_2017}
 
 % to compile a camera-ready version, add the [final] option, e.g.:
-% \usepackage[final]{nips_2017}
+\usepackage[final]{nips_2017}
 
 \usepackage[utf8]{inputenc} % allow utf-8 input
 \usepackage[T1]{fontenc}    % use 8-bit T1 fonts
@@ -22,8 +22,9 @@
 \usepackage{microtype}      % microtypography
 
 \title{
-  Bayesian optimization of an unknown number of multivariate Gaussian mixtures 
-  with a single latent factor}
+  Unsupervised learning of Gaussian mixture models in linear time
+  using variational Bayesian methods
+}
 
 % The \author macro works with any number of authors. There are two
 % commands used to separate the names and addresses of multiple
@@ -36,34 +37,22 @@
 % author name.
 
 \author{
-  David S.~Hippocampus\thanks{Use footnote for providing further
-    information about author (webpage, alternative
-    address)---\emph{not} for acknowledging funding agencies.} \\
-  Department of Computer Science\\
-  Cranberry-Lemon University\\
-  Pittsburgh, PA 15213 \\
-  \texttt{hippo@cs.cranberry-lemon.edu} \\
+  Andrew R.~Casey\\
+  Monash University\\
+  \texttt{andrew.casey@monash.edu}\\
   %% examples of more authors
-  %% \And
-  %% Coauthor \\
-  %% Affiliation \\
-  %% Address \\
-  %% \texttt{email} \\
-  %% \AND
-  %% Coauthor \\
-  %% Affiliation \\
-  %% Address \\
-  %% \texttt{email} \\
-  %% \And
-  %% Coauthor \\
-  %% Affiliation \\
-  %% Address \\
-  %% \texttt{email} \\
-  %% \And
-  %% Coauthor \\
-  %% Affiliation \\
-  %% Address \\
-  %% \texttt{email} \\
+  \And 
+  Aldeida Aleti\\
+  Monash University\\
+  \texttt{aldeida.aleti@monash.edu}\\
+  \AND
+  David Dowe\\
+  Monash University\\
+  \texttt{david.dowe@monash.edu}\\
+  \And
+  John C.~Lattanzio\\
+  Monash University\\
+  \texttt{john.lattanzio@monash.edu}\\
 }
 
 \begin{document}
@@ -72,6 +61,22 @@
 \maketitle
 
 \begin{abstract}
+  The number of components in a Gaussian mixture model is usually determined
+  by applying a chosen penalty heuristic.
+  This approach requires optimizing a set of mixtures of increasing complexity,
+  and unnecessarily separates model selection from parameter estimation.
+  
+  We derive an objective function for a finite Gaussian mixture model using
+  Minimum Message Length (MML), and derive an expression for future mixtures
+  that have yet to be observed.
+
+
+  Although future mixtures have yet to be trialled, we show that we can
+  calculate probability distributions for those future mixtures, allowing 
+  for a \emph{jumping} search algorithm that simultaneously performs model
+  selection and parameter estimation for Gaussian mixtures in linear time.
+
+
   The abstract paragraph should be indented \nicefrac{1}{2}~inch
   (3~picas) on both the left- and right-hand margins. Use 10~point
   type, with a vertical spacing (leading) of 11~points.  The word
