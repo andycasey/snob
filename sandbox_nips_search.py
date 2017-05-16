@@ -1,7 +1,7 @@
 
 import numpy as np
-from snob import nips_search2 as mixture
-
+from snob import nips_search3 as mixture
+#from snob import mixture_ka as mixture
 
 
 # Generate data from the example in Section 13.4 of P & A (2015)
@@ -41,19 +41,19 @@ y = np.vstack([np.random.multivariate_normal(
 
 
 #
-#y = np.loadtxt("cluster_example.txt")
+y = np.loadtxt("cluster_example.txt")
 
-#y = np.loadtxt("s4.txt")
+y = np.loadtxt("s4.txt")
 
-from sklearn import datasets
-y, _ = datasets.make_blobs(n_samples=1000, n_features=30, centers=10,
-  cluster_std=0.5, center_box=(-100, 100))
+#from sklearn import datasets
+#y, _ = datasets.make_blobs(n_samples=1000, n_features=2, centers=10,
+#  cluster_std=0.5, center_box=(-100, 100))
 
 #y = np.loadtxt("birch2.txt")
 
 
-search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=1)
-search_model.growing_search(y)
+search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=50)
+foo = search_model.search(y)
 
 
 raise a
@@ -68,6 +68,8 @@ covariance_type = "full"
 
 
 raise  a
+
+from snob import mixture_ka as mixture
 
 model1 = mixture.GaussianMixture()
 mu_1, cov_1, weight_1, meta_1 = model1.fit(y, 1)
@@ -102,7 +104,8 @@ expected_delta_I = np.log(2) \
 expected_delta_I = expected_delta_I/np.log(2)
 
 dk = 1
-expected_delta_I2 = dk * ((1 - D/2.) * np.log(2) + 0.25 * (D*(D+3) + 2) * np.log(N/(2*np.pi))) \
+expected_delta_I2 = dk * (
+  (1 - D/2.) * np.log(2) + 0.25 * (D*(D+3) + 2) * np.log(N/(2*np.pi))) \
                   + 0.5 * (D*(D+3)/2. - 1) * (np.sum(np.log(weight_2)) - np.sum(np.log(weight_1))) \
                   - np.sum([np.log(K + _) for _ in range(dk)]) \
                   - meta_2["log_likelihood"].sum() + meta_1["log_likelihood"].sum() \
