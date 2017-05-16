@@ -43,17 +43,28 @@ y = np.vstack([np.random.multivariate_normal(
 #
 y = np.loadtxt("cluster_example.txt")
 
-y = np.loadtxt("s4.txt")
+#y = np.loadtxt("s4.txt")
 
-#from sklearn import datasets
-#y, _ = datasets.make_blobs(n_samples=1000, n_features=2, centers=10,
-#  cluster_std=0.5, center_box=(-100, 100))
-
-#y = np.loadtxt("birch2.txt")
+from sklearn import datasets
+y, _ = datasets.make_blobs(n_samples=1000, n_features=2, centers=50,
+  cluster_std=1, center_box=(-20, 20))
 
 
-search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=50)
+
+#y = np.loadtxt("a3.txt")
+
+
+search_model = mixture.GaussianMixture(covariance_type="full", predict_mixtures=10)
 foo = search_model.search(y)
+
+
+fig, ax = plt.subplots()
+ax.scatter(y.T[0], y.T[1])
+
+means = foo[0]
+scat = ax.scatter(means.T[0], means.T[1], c=foo[2], edgecolor="k", s=50)
+plt.colorbar(scat)
+
 
 
 raise a

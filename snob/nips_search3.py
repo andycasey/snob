@@ -47,7 +47,7 @@ class GaussianMixture(object):
 
     parameter_names = ("mean", "covariance", "weight")
 
-    def __init__(self, covariance_type="diag", covariance_regularization=0, 
+    def __init__(self, covariance_type="diag", covariance_regularization=1e-6, 
         threshold=1e-5, max_em_iterations=10000, predict_mixtures=10,
         **kwargs):
 
@@ -152,7 +152,7 @@ class GaussianMixture(object):
                 # Exhaustively delete all components.
                 for m in range(M):
                     p = delete_component(y, mu, cov, weight, R, m, **kwds)
-
+                    
                     # Keep best deleted component.
                     if p[-1] < best_perturbations["delete"][-1]:
                         best_perturbations["delete"] = [m] + list(p)
@@ -208,12 +208,30 @@ class GaussianMixture(object):
 
         while True:
 
+
             M = weight.size
+            
             best_perturbations = defaultdict(lambda: [np.inf])
-                
+            logger.debug("K = {}, I = {}, ll = {}".format(M, message_length, ll))
+            logger.debug("Smallest Neff = {} ({})".format(
+                np.min(weight * y.shape[0]), np.argmin(weight * y.shape[0])))
+
             # Exhaustively split all components.
             for m in range(M):
-                p = split_component(y, mu, cov, weight, R, m, **kwds)
+                try:
+                    p = split_component(y, mu, cov, weight, R, m, **kwds)
+                except ValueError:
+                    logger.debug("Failed to split component {}".format(m))
+                    continue
+
+                logger.debug("Split component {} of {}: {}".format(m, M, p[-1]))
+
+                # If the split resulted in a maximum Neff of < 1, don't keep
+                # this.
+                if np.min(p[2] * y.shape[0]) < 1:
+                    logger.debug("Ignoring mixture because Neff < 1")
+                    continue
+
                 self._mixture_predictors.append(p[-2]["predictors"])
 
                 # Keep best split component.
@@ -223,7 +241,19 @@ class GaussianMixture(object):
             if M > 1:
                 # Exhaustively delete all components.
                 for m in range(M):
-                    p = delete_component(y, mu, cov, weight, R, m, **kwds)
+                    try:
+                        p = delete_component(y, mu, cov, weight, R, m, **kwds)
+                    except ValueError:
+                        logger.debug("Failed to delete component {}".format(m))
+                        continue
+
+                    logger.debug("Delete component {} of {}: {}".format(m, M, p[-1]))
+
+                    if np.min(p[2] * y.shape[0]) < 1:
+                        logger.debug("Ignoring mixture because Neff < 1")
+                        continue
+
+
                     self._mixture_predictors.append(p[-2]["predictors"])
 
                     # Keep best deleted component.
@@ -232,7 +262,20 @@ class GaussianMixture(object):
                 
                 # Exhaustively merge all components.
                 for m in range(M):
-                    p = merge_component(y, mu, cov, weight, R, m, **kwds)
+                    try:
+                        p = merge_component(y, mu, cov, weight, R, m, **kwds)
+                    
+                    except ValueError:
+                        logger.debug("Failed to delete component {}".format(m))
+                        continue
+
+                    if np.min(p[2] * y.shape[0]) < 1:
+                        logger.debug("Ignoring mixture because Neff < 1")
+                        continue
+
+
+                    logger.debug("Merge component {} of {}: {}".format(m, M, p[-1]))
+
                     self._mixture_predictors.append(p[-2]["predictors"])
 
                     # Keep best merged component.
@@ -246,19 +289,29 @@ class GaussianMixture(object):
             # Consider a jump.
             jump = self._propose_jump(y, mu, cov, weight, message_length, ll)
             if jump:
-                p = jump_to_mixture(y, jump, **kwds)
-                self._mixture_predictors.append(p[-2]["predictors"])
+                try:
+                    p = jump_to_mixture(y, jump, **kwds)
+                except ValueError:
+                    logger.debug("Failed to jump to K = {}".format(jump))
 
-                logger.debug("Jump to {} had I = {} [{}]".format(jump, p[-1],
-                    "BETTER" if p[-1] < message_length else "WORSE"))
+                else:
+                    self._mixture_predictors.append(p[-2]["predictors"])
 
-                # Is a jump better than our best operation?
-                if p[-1] < b_ml:
-                    # Accept the jump.
-                    b_mu, b_cov, b_weight, b_R, b_meta, b_ml = p
-                    b_op = "jump"
+                    if np.min(p[2] * y.shape[0]) < 1:
+                        logger.debug("Ignoring mixture because Neff < 1")
+                        continue
 
-                    logger.debug("Accepted jump as best operation")
+
+                    logger.debug("Jump to {} had I = {} [{}]".format(jump, p[-1],
+                        "BETTER" if p[-1] < message_length else "WORSE"))
+
+                    # Is a jump better than our best operation?
+                    if p[-1] < b_ml:
+                        # Accept the jump.
+                        b_mu, b_cov, b_weight, b_R, b_meta, b_ml = p
+                        b_op = "jump"
+
+                        logger.debug("Accepted jump as best operation")
 
             logger.debug("Best operation: {} {}".format(bop, b_ml))
 
@@ -272,6 +325,26 @@ class GaussianMixture(object):
             else:
                 # None of the perturbations were better than what we had.
                 break
+
+        # Now cull things with zero members.
+        while True:
+            del_index = np.where(weight * y.shape[0] < 1)[0]
+            if len(del_index) == 0:
+                break
+
+            del_index = del_index[0]
+
+            logger.debug("CULLING INDEX = {} because {}".format(del_index,
+                weight[del_index] * y.shape[0]))
+            logger.debug("State K = {} I = {} ll = {}".format(weight.size,
+                message_length, ll))
+            mu, cov, weight, R, meta, ml = delete_component(y, mu, cov, weight, R, del_index, **kwds)
+            message_length = ml
+            ll = meta["log_likelihood"]
+
+        logger.debug("Ended on K = {}".format(weight.size))
+
+
 
         meta = dict(message_length=message_length, log_likelihood=-b_ml)
         return (mu, cov, weight, meta)
@@ -297,9 +370,11 @@ class GaussianMixture(object):
 
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
-        ax.plot(proposed_K, pI)
-        ax.fill_between(proposed_K, pI + pI_scatter, pI - pI_scatter, alpha=0.5)
-        ax.scatter(predictors.T[0], predictors.T[2])
+        ax.plot(proposed_K, pI, c="b")
+        ax.plot(proposed_K, pI_bound, c="r")
+        ax.fill_between(proposed_K, pI + pI_scatter, pI - pI_scatter, alpha=0.5,
+            facecolor="b")
+        ax.scatter(predictors.T[0], predictors.T[2], facecolor="k")
         ax.set_title("predicted mls from {}".format(weight.size))
 
         percent_scatter = 1.0 # MAGIC
@@ -323,7 +398,7 @@ class GaussianMixture(object):
                 weight.size, proposed_K[reasonable_jump]))
 
         
-            best_jump = proposed_K[reasonable_jump][np.argmin(pI[reasonable_jump])] # TODO
+            best_jump = proposed_K[reasonable_jump][np.argmin(pI_bound[reasonable_jump])] # TODO
             if abs(best_jump - weight.size) > 1:
                 logger.debug("JUMPING to {}".format(best_jump))
                 return best_jump
@@ -508,10 +583,10 @@ class GaussianMixture(object):
 
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
-        ax.scatter(predictors.T[0], predictors.T[1])
-        ax.plot(K, expectation)
+        ax.scatter(predictors.T[0], predictors.T[1], facecolor="k")
+        ax.plot(K, expectation, c="b")
         ax.fill_between(K, expectation - variance**0.5, expectation + variance**0.5,
-            alpha=0.5)
+            alpha=0.5, facecolor="b")
         ax.set_title("predicting sum log weights from {}".format(weight.size))
         ax.plot(K, upper_bound(K), c="r", lw=2)
 
@@ -530,11 +605,13 @@ class GaussianMixture(object):
         yerr = np.empty(x.size)
         for i, xi in enumerate(x):
             match = (predictors.T[0] == xi)
-            y[i] = np.min(predictors.T[-1][match])
-            yerr[i] = np.std(predictors.T[-1][match])
+            values = np.unique(np.round(predictors.T[-1][match], 2))
+            y[i] = np.min(values)
+            yerr[i] = np.std(values)
 
         yerr[(yerr == 0)] = np.max(yerr)
 
+        
         function = lambda x, *p: np.polyval(p, x)
 
         # TODO: How to estimate variance in all this?
@@ -542,9 +619,12 @@ class GaussianMixture(object):
             sigma=yerr, absolute_sigma=True)
 
         expectation = function(target_K, *op_params)
-        variance = np.var([function(target_K, *draw) \
-            for draw in np.random.multivariate_normal(op_params, op_cov, size=30)],
-            axis=0)
+        try:
+            variance = np.var([function(target_K, *draw) \
+                for draw in np.random.multivariate_normal(op_params, op_cov, size=30)],
+                axis=0)
+        except ValueError:
+            variance = 0.0
 
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
@@ -552,10 +632,10 @@ class GaussianMixture(object):
 
         ax.scatter(predictors.T[0], predictors.T[-1], s=5, alpha=0.5,
             facecolor="k")
-        ax.scatter(x, y, facecolor="r", s=10)
+        ax.scatter(x, y, facecolor="g", s=10)
         ax.errorbar(x, y, yerr)
 
-        ax.plot(target_K, expectation)
+        ax.plot(target_K, expectation, c="b")
         ax.fill_between(target_K, expectation - variance**0.5, expectation + variance**0.5,
             alpha=0.5, facecolor="b")
         
@@ -821,7 +901,7 @@ def _message_length(y, mu, cov, weight, responsibility, nll,
             # full
             cov_ = cov
 
-        log_det_cov = np.log(np.linalg.det(cov_))
+        _, log_det_cov = np.linalg.slogdet(cov_)#np.log(np.linalg.det(cov_))
     
         log_F_m = 0.5 * D * (D + 3) * np.log(np.sum(responsibility, axis=1)) 
         log_F_m += -log_det_cov
@@ -1311,7 +1391,7 @@ def split_component(y, mu, cov, weight, responsibility, index, **kwargs):
     # TODO: Current implementation only allows for a component to be split
     #       into two sub-components
 
-    logger.debug("Splitting component {} of {}".format(index, weight.size))
+    #logger.debug("Splitting component {} of {}".format(index, weight.size))
 
     M = weight.size
     N, D = y.shape
@@ -1439,11 +1519,14 @@ def delete_component(y, mu, cov, weight, responsibility, index, **kwargs):
         in message length.
     """
 
-    logger.debug("Deleting component {} of {}".format(index, weight.size))
+    #logger.debug("Deleting component {} of {}".format(index, weight.size))
 
     # Create new component weights.
     parent_weight = weight[index]
     parent_responsibility = responsibility[index]
+
+    new_mu = np.delete(mu, index, axis=0)
+    new_cov = np.delete(cov, index, axis=0)
     
     # Eq. 54-55
     new_weight = np.clip(
@@ -1451,17 +1534,39 @@ def delete_component(y, mu, cov, weight, responsibility, index, **kwargs):
         0, 1)
     
     # Calculate the new responsibility safely.
-    new_responsibility = np.clip(
-        np.delete(responsibility, index, axis=0) / (1 - parent_responsibility),
-        0, 1)
-    new_responsibility[~np.isfinite(new_responsibility)] = 0.0
+    new_responsibility = np.delete(responsibility, index, axis=0) / (1 - parent_responsibility)
+
+    # The non-finite values occur when one data point was wholly assigned
+    # responsibility to the component being deleted.
+    reassigned = np.where(~np.all(np.isfinite(new_responsibility), axis=0))[0]
+
+    # L2 distance.
+    distance = np.sum((y[:, :, None] - new_mu.T)**2, axis=1).T
+    inv_norm_distance = np.sum(distance, axis=0)/distance
+    norm_distance = inv_norm_distance/np.sum(inv_norm_distance, axis=0)
+
+
+    #closest = np.argmin(distance, axis=0)
+
+    #if weight.size > 5 and len(reassigned) > 0:
+    #    raise a
+    # TODO: calculate as normalized distance?
+    new_responsibility[:, reassigned] = norm_distance[:, reassigned]
+
+    new_weight = new_responsibility.sum(axis=1)/y.shape[0]
+
+    #new_responsibility[closest[reassigned], reassigned] = 1.0
+
+    #if len(reassigned) > 0:
+    #    raise a
+    assert np.all(np.isfinite(new_responsibility))
+    #foo = new_responsibility.copy()
+    #new_responsibility[~np.isfinite(new_responsibility)] = 0.0
 
     assert np.all(np.isfinite(new_responsibility))
     assert np.all(np.isfinite(new_weight))
 
-    new_mu = np.delete(mu, index, axis=0)
-    new_cov = np.delete(cov, index, axis=0)
-
+    
     # Run expectation-maximizaton on the perturbed mixtures. 
     return _expectation_maximization(y, new_mu, new_cov, new_weight, 
         new_responsibility, **kwargs)
