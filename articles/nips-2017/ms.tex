@@ -352,15 +352,70 @@ estimates of future, uncomputed mixtures:
 \begin{enumerate}
   \item The sum of the log of the weights of future mixtures,\\
         $\sum_{k=1}^{K+\Delta{K}}\log\weight_k\future$.
-  \item The negative log-likelihood of future mixtures,\\ $-\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{K}}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\future$.
+  \item The negative log-likelihood of future mixtures,\\
+        $-\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{K}}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\future$.
   \item The negative sum of the log of the determinant of covariance matrices
         of future mixtures,\\
         $-\sum_{k=1}^{K + \Delta{K}}\log|\veccov_k|\future$.
 \end{enumerate}
 
+The mixing weights follow a multinomial distribution.  For this reason,
+although the weights of future mixtures are not known, it can be shown that
+the sum of the log of $K$ weights follow the function,
+\begin{equation}
+  \sum_{k=1}^{K+\Delta{K}}\log\weight_k\future \approx -K\log{K} + g_0
+  \label{eq:g}
+\end{equation}
+
+\noindent{}such that if the integration constant $g_0$ is known, Eq. \ref{eq:g}
+provides an upper bound on the possible contribution to the message length
+(maximum entropy).  In practice we store the values of $K$ and 
+$\sum_{k=1}^{K}\log\weight_k$ for optimized mixtures, and update our estimate
+of the integration constant when predicting the message length of future
+mixtures.  Depending on the distribution of the data, the sum of the log of
+the weights can have a value lower than $-K\log{K} + g_0$, but the same
+functional form will be followed.  For this reason, we fit the approximating
+function,
+\begin{equation}
+G(K) = -Kg_1\log{K} + g_0 \approx \sum_{k=1}^{K+\Delta{K}}\log\weight_k 
+\end{equation}
+
+\noindent{}using the stored values of $\{K,\sum_{k=1}^{K}\log\weight_k\}$ from
+previously optimized mixtures.  These two linear fitting routines provide an
+estimate of the expectation, the variance, \emph{and} an upper bound on the
+sum of the log of the weights of unobserved mixtures.
+
+
+There is no equivalent function we can derive for the log-likelihood of future
+mixtures, or the sum of the log of the determinants.  
+% Li and Barron
+The change in the log-likelihood and the determinant of the covariance
+matrices will depend on the data.
+% Li and Barron
+One could suppose that the determinants of the covariance matrices will on
+average decrease with additional components, but to our knowledge there is 
+no theoretical basis for the functional form.
+Lacking a grounded theoretical basis for these two functions, we collate them
+into a single term and approximate it with a second-order polynomial function,
+$H(K)$,
+\begin{equation}
+H(K) = h_2K^2 + h_1K + h_0 \approx -\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{K}}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\future - \frac{D+2}{2}\sum_{k=1}^{K + \Delta{K}}\log|\veccov_k|\future \quad .
+\end{equation}
+
+% FIt and determine a variance.
+
+Given the functions $G(K)$ and $H(K)$, we update our estimates of the 
+coefficients $\vec{g}$ and $\vec{h}$ after any proposed mixture has been
+optimized (Section \ref{sec:search-strategy}).  While $G(K)$ is an analytic
+function, $H(K)$ is merely adopted for simplicity.  A more grounded
+approximation is welcomed.  However, in Section \ref{sec:experimental-results}
+we show that our $H(K)$ approximation is sufficient, even with a simplistic
+search strategy.
+
 
 
 \section{Search strategy}
+\label{sec:search-strategy}
 
 % Initialization
 
