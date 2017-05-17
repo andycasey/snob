@@ -21,6 +21,20 @@
 \usepackage{nicefrac}       % compact symbols for 1/2, etc.
 \usepackage{microtype}      % microtypography
 
+\usepackage{amssymb} % for \intercal
+\usepackage{bm}      % for bold vectors
+\newcommand{\vect}[1]{\boldsymbol{\mathbf{#1}}}
+\def\veccov{\vect{C}}
+\def\vecmean{\vect{\mu}}
+\def\vectheta{\vect{\theta}}
+\def\weight{w}
+\def\weights{\vect{\weight}}
+\def\datum{y}
+\def\data{\vect{\datum}}
+\def\likelihood{\mathcal{L}}
+\def\current{^{\mathrm{(K)}}}
+\def\future{^{\mathrm{(K} + \Delta\mathrm{K)}}}
+
 \title{
   Unsupervised learning of Gaussian mixture models in linear time
   using a variational Bayesian method
@@ -98,6 +112,239 @@
 % can be approximated.
 
 \section{The objective function}
+\label{sec:objective-function}
+
+
+\noindent{}The probability density function $f$ for a multivariate normal 
+distribution with $D$ dimensions is,
+
+\begin{equation}
+  f(\data|\vecmean,\veccov) 
+      = \frac{1}{\sqrt{(2\pi)^d|\veccov|}}
+        \exp{\left[-\frac{1}{2}(\data - \vecmean)^\intercal\veccov^{-1}(\data - \vecmean)\right]}
+\end{equation}
+
+\noindent{}where $\vecmean$ and $\veccov$ is the multivariate mean and 
+covariance matrix, and $\data$ are the data.
+For a fixed number of $K$ multivariate Gaussian mixtures, the probability
+density function is given by:
+
+\begin{equation}
+  f(\data|\vectheta) = \sum_{k=1}^{K} \weight_k \, f(\data|\vectheta_k)
+\end{equation}
+
+\noindent{}Where $\vectheta_k \equiv \{\vecmean_k, \veccov_k\}$,
+$\vectheta \equiv \{\vectheta_1,\dots,\vectheta_K,\weight_1,\dots,\weight_K\}$, 
+and $\weight_k$ is the relative weight of the $k$-th mixture such that
+$\sum_{k=1}^{K}\weight_k = 1$.
+
+
+\subsection{Minimum Message Length}
+\label{sec:mml}
+
+The Minimum Message Length \citep[MML;][]{Wallace_1968} principle is a formal
+description of Occam's razor that is based on information theory.
+% Taking Bayes and Shannon.
+% TODO
+The MML principle states that the best explanation of the data is the model
+that describes the data using the smallest amount of information (shortest
+message), where information is described as per \citet{Shannon_1948}. 
+
+
+Calculating the optimal lossless message length of a complex model can be
+non-trivial or intractable. Here we make use of the \citet{Wallace_1987}
+approximation of the message length:
+
+\begin{equation}
+\label{eq:message-length}
+  I(\vectheta,\data) 
+    = \frac{Q}{2}\log\kappa{\left(Q\right)} 
+    - \log{\left(\frac{p(\vectheta)}{\sqrt{|\mathcal{F}(\vectheta)|}}\right)}
+    - \likelihood\left(\data|\vectheta\right) 
+    + \frac{Q}{2} \quad .
+\end{equation}
+
+Here $p(\vectheta)$ is the prior, $Q$ is the number of free parameters in the
+model, $\kappa\left(Q\right)$ is a function to approximate the lattice
+quantisation constant for $Q$ free parameters \citep[e.g.,][]{Conway_1984}, 
+and $|\mathcal{F}\left(\vectheta\right)|$ is the determinant of the 
+\emph{expected} Fisher information matrix (the second-order partial 
+derivatives of the negative log-likelihood function 
+$-\likelihood(\data|\vectheta)$).
+
+
+The MML principle requires that we encode everything required to reconstruct
+the message, including our prior beliefs on the model parameters.The message 
+for a finite Gaussian mixture must therefore encode:
+\begin{enumerate}
+  \item The number of Gaussian mixtures, $K$.
+  \item The relative weights $\weights$ of the $K - 1$ Gaussian mixtures. Only
+        $K - 1$ must be encoded because $\sum_{k=1}^{K}\weight_k = 1$.
+  \item The component parameters $\vecmean$ and $\veccov$ for all $K$ Gaussian
+        mixtures.
+  \item The data, given the model parameters.
+  \item The lattice quantisation constant $\kappa(Q)$ for the number of model
+        parameters $Q$.
+\end{enumerate}
+
+We provide the message length of each component in turn before outlining our
+objective function.  First, we assume a prior on $K$ of $p(K) \propto 2^{-K}$
+such that the length of the optimal lossless message to encode $K$ is 
+$I(K) = -\log{p(K)} = K\log{2} + \textrm{constant}$.  Given a uniform prior
+on $\weights$ and the requirement that $\sum_{k=1}^{K}\weight_k = 1$, the 
+weights can be treated as parameters of a multinomial distribution, which can
+be optimally encoded in a message of length:
+\begin{equation}
+  I(\weights) 
+    = \frac{K - 1}{2}\log{N} 
+    - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k 
+    - \log{\Gamma{\left(K\right)}} \quad .
+\end{equation}
+
+In order to properly encode the mixture parameters $\vecmean$ and $\veccov$
+for all $K$ mixtures, we must encode both our prior belief on those parameters,
+and the determinant of the expected Fisher information matrix. For the $k$-th
+mixture this becomes,
+
+\begin{equation}
+  I(\vecmean_k,\veccov_k) = -\log{\left(\frac{p(\vecmean_k,\veccov_k)}{\sqrt{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}}\right)}
+                          = -\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|}
+\end{equation}
+
+\noindent{}and for all mixtures:
+
+\begin{equation}
+  I(\vecmean,\veccov) = -\sum_{k=1}^{K}\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\sum_{k=1}^{K}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|} \quad .
+  \label{eq:I_component_params}
+\end{equation}
+
+We adopt an improper uniform prior of $\mathcal{U}(\vecmean) = [-\infty, +\infty]$ 
+on $\vecmean$, and a conjugate inverted Wishart prior for the covariance matrix
+of individual mixtures \citep[e.g., Section 5.2.3. of ][]{Schafer_1997}:
+\begin{equation}
+  p(\vecmean_k, \veccov_k) \propto |\veccov_k|^{\frac{D+1}{2}} \quad .
+  \label{eq:covariance-prior}
+\end{equation}
+
+We approximate the determinant of the Fisher information 
+$|\mathcal{F}(\vecmean_k, \veccov_k)|$ as the product of 
+$|\mathcal{F}\left(\vecmean_k\right)|$ and $|\mathcal{F}\left(\veccov_k\right)|$ 
+\citep{Oliver_1996,Roberts_1998}.  Taking the second derivative of the
+log-likelihood function $\likelihood\left(\data|\vecmean,\veccov\right)$,
+with respect to $\vecmean$ yields,
+\begin{equation}
+  |\mathcal{F}\left(\vecmean_k\right)| = (N\weight_k)^{D}|\veccov_k|^{-1} \quad .
+\end{equation}
+
+We make use of an analytical expression for the determinant of the Fisher
+information for a covariance matrix $|\mathcal{F}(\veccov_k)|$ \citep{Dwyer_1967,Magnus_1988,Kasarapu_2015},
+\begin{equation}
+  |\mathcal{F}\left(\veccov_k\right)| = (N\weight_k)^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \quad ,
+\end{equation}
+
+\noindent{}giving the following approximation for the determinant of the
+expected Fisher information matrix,
+\begin{eqnarray}
+  |\mathcal{F}(\vecmean_k,\veccov_k)| & \approx & |\mathcal{F}(\vecmean_k)|\cdot|\mathcal{F}(\veccov_k)| \nonumber \\
+  |\mathcal{F}(\vecmean_k,\veccov_k)| & \approx & (N\weight_k)^{D}|\veccov_k|^{-1}(N\weight_k)^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \nonumber \\
+  |\mathcal{F}(\vecmean_k,\veccov_k)| & \approx & (N\weight_k)^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)} \quad .
+\end{eqnarray}
+
+\noindent{}which, with Eq. \ref{eq:covariance-prior}, we can substitute into Eq. \ref{eq:I_component_params}:
+
+\begin{eqnarray}
+I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{|\veccov_k|^{\frac{D + 1}{2}}}
+ + \frac{1}{2}\sum_{k=1}^{K}\log{\left[(N\weight_k)^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)}\right]} \nonumber \\
+I(\vecmean,\veccov) &=& -\frac{(D + 1)}{2}\sum_{k=1}^{K}\log{|\veccov_k|}
+ + \frac{D(D+3)}{4}\sum_{k=1}^{K}\log{\left(N\weight_k\right)} -\frac{KD}{2}\log{2} -\frac{D+2}{2}\sum_{k=1}^{K}\log{|\veccov_k|} \nonumber \\
+%I(\vecmean,\veccov) &=& \frac{D(D+3)}{4}\sum_{k=1}^{K}\log{\left(N\weight_k\right)} -\frac{KD}{2}\log{2} -\frac{(D + 1)}{2}\sum_{k=1}^{K}\log{|\veccov_k|}
+% +-\frac{D+2}{2}\sum_{k=1}^{K}\log{|\veccov_k|} \nonumber \\
+% TODO: UPDATE....
+\end{eqnarray}
+
+If we assume that the data have homoskedastic noise properties, then the 
+precision of each measurement $\mathcal{E}$ relates the probability of a
+datum $\textrm{Pr}(\datum_n)$ can be related to the probability density of
+the datum, given the model 
+$\textrm{Pr}(\datum_n) = \mathcal{E}^{D}\textrm{Pr}(y_i|\mathcal{M})$.
+In the paper we adopt $\mathcal{E} = 0.01$, but we note that the value of
+$\mathcal{E}$ has no effect on our inferences.  The message length of encoding
+a datum given the model is,
+\begin{equation}
+  I(\data_n) = -\log{\textrm{Pr}(\data_n)} = -D\log\mathcal{E} - \log\sum_{k=1}^{K}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)
+\end{equation}
+
+\noindent{}and for the entire data:
+\begin{eqnarray}
+  I(\data|\vectheta) &=& -ND\log\mathcal{E} - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k) \quad .
+\end{eqnarray}
+
+The final part of the message is to encode the lattice quantisation constant,
+which arises from the approximation to the (so-called) strict MML, where
+parameters are quantised into intervals in high dimensional space in order to
+be losslessly encoded.  We use an approximation of the lattice constant
+\citep[see Sections 5.1.12 and 3.3.4 of ][]{Wallace_2005} such that,
+\begin{equation}
+  \log\kappa(Q) = \frac{\log{Q\pi}}{Q} - \log{2\pi} - 1 \quad ,
+\end{equation}
+
+\noindent{}where $Q$ is the total number of free parameters in the model. Each
+component requires $D$ parameters to specify $\vecmean$, and a covariance
+matrix with off-diagonal terms requires $\frac{1}{2}D(D+1)$ parameters.
+Because only $K - 1$ weights need to be encoded, the total number of free
+parameters is given by ${Q = K\left[\frac{D(D+3)}{2} + 1\right] - 1}$.
+
+
+\subsection{Message length for a finite mixture of multivariate Gaussian components}
+
+The message lengths of the optimally encoded components allows us to construct
+our full objective function:
+\begin{equation}
+  I(\vectheta,\data) = I(K) + I(\weights) + \sum_{k=1}^{K}I(\vectheta_k) + I(\data|\vectheta) + \frac{1}{2}\left(\log{Q\pi} - Q\log{2\pi}\right)\quad .
+\end{equation}
+
+\noindent{}Substituting the expressions outlined in the previous subsection
+(except for $Q$, which we leave unexpanded for brevity), we arrive at the full
+message length for a finite mixture of $K$ multivariate Gaussian components:
+\begin{eqnarray}
+  I(\vectheta,\data) &=&
+      K\log{2} % I(K)
+    + \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k - \log{\Gamma(K)} % I(\weights) 
+    + \frac{1}{2}\sum_{k=1}^{K}\log{|\veccov_k|} \nonumber \\ % 
+   &+&\frac{K}{2}\left[\frac{D(D+3)}{2}\log{N} - D\log{2}\right] % I(\vectheta_k) = I(\vecmean_k,\veccov_k)
+    - ND\log\mathcal{E} - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k) \nonumber \\ % I(\data|\vectheta)
+   &+& \frac{1}{2}\left(\log{Q\pi} - Q\log{2\pi}\right) \quad . % lattice
+    \label{eq:objective-function}
+\end{eqnarray}
+
+
+\subsection{Predicting the message length of uncomputed mixtures}
+
+
+Consider that the number of true components $K_{true}$ is unknown, and that we
+have an optimal mixture of $K$ components in the sense that the model
+parameters $\vectheta$ minimise the total message length in Eq.
+\ref{eq:objective-function}.  We are interested to know whether the total
+message length will decrease if we add or remove components.  For
+example, our current state may be an optimized mixture with $K=2$ and we want
+to know if an optimal mixture with $K=3$ will result in a shorter message
+length.  By denoting $I\current$ as the message length of the current (optimal) 
+mixture and $I\future$ as mixtures that have yet to be computed, we
+want to know if $I\future - I\current < 0$, or rather we seek to calculate 
+some probability $\textrm{Pr}(I\future - I\current < 0)$ before having to 
+optimize the future mixture $I\future$.  
+Taking Eq. \ref{eq:objective-function}, we can derive an expression for the 
+difference in message lengths between future mixtures and the current state:
+\begin{eqnarray}
+  I\future - I\current &=& \Delta{K}\left[
+  \left(1 - \frac{D}{2}\right)\log{2} + \frac{1}{4}\left(D(D+3)+2\right)\log\frac{N}{2\pi}\right] \nonumber \\
+  &-& \log\Gamma(K+\Delta{K}) + \log\Gamma(K) + \frac{1}{2}\left(\log{Q\future} - \log{Q\current}\right) \nonumber \\
+  &+& \frac{1}{2}\left(\frac{D(D+3)}{2} - 1\right)\left(\sum_{k=1}^{K+\Delta{K}}\log\weight_k\future - \sum_{k=1}^{K}\weight_k\current\right) \nonumber \\
+  &-& \sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{K}}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\future + \sum_{n=1}^{N}\log\sum_{k=1}^{K}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\current \nonumber \\
+  &+& \frac{D + 2}{2}\left(\sum_{k=1}^{K}\log|\veccov_k|\current - \sum_{k=1}^{K + \Delta{K}}\log|\veccov_k|\future\right) \quad .
+\end{eqnarray}
+
+
 
 
 \section{Search strategy}
