@@ -89,7 +89,13 @@
   model selection for multivariate Gaussian mixtures in linear time.
 \end{abstract}
 
+
 \section{Introduction}
+\label{sec:introduction}
+
+
+
+
 % Gaussian mixture modelling is a common problem.
 % When the number of mixtures is unknown, the problem is normally 
 % attacked by optimizing multiple different models, and performing
@@ -125,7 +131,7 @@ distribution with $D$ dimensions is,
 \end{equation}
 
 \noindent{}where $\vecmean$ and $\veccov$ is the multivariate mean and 
-covariance matrix, and $\data$ are the data.
+covariance matrix, and the data $\data$ is an $N\times{}D$ array.
 For a fixed number of $K$ multivariate Gaussian mixtures, the probability
 density function is given by:
 
@@ -363,7 +369,7 @@ The mixing weights follow a multinomial distribution.  For this reason,
 although the weights of future mixtures are not known, it can be shown that
 the sum of the log of $K$ weights follow the function,
 \begin{equation}
-  \sum_{k=1}^{K+\Delta{K}}\log\weight_k\future \approx -K\log{K} + g_0
+  \sum_{k=1}^{K+\Delta{K}}\log\weight_k\future \leq -K\log{K} + g_0
   \label{eq:g}
 \end{equation}
 
@@ -410,25 +416,59 @@ optimized (Section \ref{sec:search-strategy}).  While $G(K)$ is an analytic
 function, $H(K)$ is merely adopted for simplicity.  A more grounded
 approximation is welcomed.  However, in Section \ref{sec:experimental-results}
 we show that our $H(K)$ approximation is sufficient, even with a simplistic
-search strategy.
+search strategy. 
 
 
 
 \section{Search strategy}
 \label{sec:search-strategy}
 
-% Initialization
+\subsection{Initialization}
+
+
+\subsection{Mixture optimization}
+
+
+Every time a mixture is perturbed and optimized, we store the
+resulting mixture predictors $\{K, \sum_{k=1}^{K}\log\weight_k, X\}$ in order
+to update our approximating functions $G(K)$ and $H(K)$.
+
+
+\subsection{Perturbation search}
+
+Starting from our initial mixture, we adopt a perturbation search strategy 
+which considers the following possible perturbations: merge, delete, split,
+and jump.  We briefly describe each step in turn.  
+
+% DESCRIBE EACH ONE.
+
+
+While perturbation search strategies have existed for Gaussian
+mixture models for some time, none have included a \emph{jump} operation.
+With our approximating functions to calculate probability densities for the
+message length of future mixtures, including a \emph{jump} operation allows
+us to quickly move to the appropriate number of mixture components.
+
+
 
 % Perturbation strategy with a twist
 
 
 \section{Experimental results}
 
-% 
+
+
+% The K=4 mixture in F & J 2002, etc.
 
 % BAYES FTW
 
-\section{Conclusion}
+% A huge model.
+
+% Cost of the model.
+
+
+
+\section{Discussion}
 
 
 %\subsubsection*{Acknowledgments}
