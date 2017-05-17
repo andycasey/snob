@@ -342,8 +342,21 @@ difference in message lengths between future mixtures and the current state:
   &+& \frac{1}{2}\left(\frac{D(D+3)}{2} - 1\right)\left(\sum_{k=1}^{K+\Delta{K}}\log\weight_k\future - \sum_{k=1}^{K}\weight_k\current\right) \nonumber \\
   &-& \sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{K}}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\future + \sum_{n=1}^{N}\log\sum_{k=1}^{K}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\current \nonumber \\
   &+& \frac{D + 2}{2}\left(\sum_{k=1}^{K}\log|\veccov_k|\current - \sum_{k=1}^{K + \Delta{K}}\log|\veccov_k|\future\right) \quad .
+  \label{eq:delta_I}
 \end{eqnarray}
 
+Although there are many terms in Eq. \ref{eq:delta_I}, most are readily
+available and can be immediately computed for given trials of $\Delta{K}$.  
+Only three terms are exceptions, which expectedly relate to the parameter 
+estimates of future, uncomputed mixtures:
+\begin{enumerate}
+  \item The sum of the log of the weights of future mixtures,\\
+        $\sum_{k=1}^{K+\Delta{K}}\log\weight_k\future$.
+  \item The negative log-likelihood of future mixtures,\\ $-\sum_{n=1}^{N}\log\sum_{k=1}^{K+\Delta{K}}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)\future$.
+  \item The negative sum of the log of the determinant of covariance matrices
+        of future mixtures,\\
+        $-\sum_{k=1}^{K + \Delta{K}}\log|\veccov_k|\future$.
+\end{enumerate}
 
 
 
