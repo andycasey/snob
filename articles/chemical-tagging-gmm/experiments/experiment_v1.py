@@ -31,7 +31,7 @@ finite = np.all(np.array([
 
 results = []
 
-covariance_type = "diag"
+covariance_type = "full"
 
 running_delta_bic = 0
 running_delta_mml = 0
@@ -124,7 +124,7 @@ results = np.array(results)
 
 import pickle
 
-with open("experiment_v1_results.pkl", "wb") as fp:
+with open("experiment_v1_results_{}.pkl".format(covariance_type), "wb") as fp:
     pickle.dump(results, fp, -1)
 
 diff_mml = np.sum(np.abs(results.T[0] - results.T[-1]))
@@ -137,10 +137,29 @@ print("AIC", diff_aic)
 
 fig, axes = plt.subplots(3)
 
-for i, ax in enumerate(axes):
-    ax.scatter(results.T[0], results.T[i + 3], alpha=0.25, marker='s', s=100)
+for i, (ax, name) in enumerate(zip(axes, ("AIC", "BIC", "MML"))):
+    ax.scatter(results.T[0], results.T[i + 3] - results.T[0], alpha=0.25, marker='s', s=100)
 
-    ax.set_ylim(0, 10)
-    ax.set_xlim(0, 20)
+    ax.set_ylabel(r"$\Delta${}".format(name))
+    ax.axhline(0, c="#666666", zorder=-1, linestyle=":", linewidth=1, alpha=0.5)
+
+    ax.text(0.95, 0.95, "{:.0f}".format(np.sum(np.abs(results.T[i + 3] - results.T[0]))),
+        transform=ax.transAxes, horizontalalignment="right", verticalalignment="top")
+    if not ax.is_last_row():
+        ax.set_xticks([])
+
+
+ax.set_xlim(results[0,0] - 1, results[-1, 0] + 1)
+
+ylim = np.max([np.abs(ax.get_ylim()) for ax in axes])
+for ax in axes:
+    ax.set_ylim(-ylim, ylim)
+
+axes[0].set_title("Ex. 1 ({}) with {} covariance structure".format(
+    ", ".join(predictors), covariance_type))
+
+fig.savefig("experiment1_{}.png".format(covariance_type))
+fig.savefig("experiment1_{}.pdf".format(covariance_type))
+
 
 raise a

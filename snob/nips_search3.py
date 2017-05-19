@@ -327,6 +327,7 @@ class GaussianMixture(object):
                 break
 
         # Now cull things with zero members.
+        """
         while True:
             del_index = np.where(weight * y.shape[0] < 1)[0]
             if len(del_index) == 0:
@@ -341,7 +342,9 @@ class GaussianMixture(object):
             mu, cov, weight, R, meta, ml = delete_component(y, mu, cov, weight, R, del_index, **kwds)
             message_length = ml
             ll = meta["log_likelihood"]
-
+        """
+        assert np.min(weight * y.shape[0]) >= 1
+        
         logger.debug("Ended on K = {}".format(weight.size))
 
 
@@ -861,6 +864,15 @@ def _expectation(y, mu, cov, weight, **kwargs):
 
     I = _message_length(y, mu, cov, weight, responsibility, nll, **kwargs)
     
+    try:
+        kwargs["callback"]("expectation.state", responsibility, log_likelihood, I)
+
+    except KeyError:
+        None
+
+    except:
+        raise
+
     return (responsibility, nll, I)
 
 
