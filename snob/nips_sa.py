@@ -1,5 +1,7 @@
 
 """
+A simulated annealing
+
 An estimator for modelling data from a mixture of Gaussians, 
 using an objective function based on minimum message length.
 """
@@ -706,7 +708,8 @@ class GaussianMixture(BaseGaussianMixture):
                 # Split all components, and run partial E-M on each.
                 K = self.weight.size
                 best_perturbation = []
-
+                incumbent_perturbation = []
+                
                 for k in range(K):
                     # Split the mixture, run partial E-M then full E-M.
                     idx, _, meta = self._optimize_split_mixture(y, R, k)
