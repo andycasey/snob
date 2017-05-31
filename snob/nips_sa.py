@@ -693,13 +693,12 @@ class GaussianMixture(BaseGaussianMixture):
             the number of dimensions per observation.
         """
         #initiliase the temperature
-        temperature=1.0
-        initialTemperature=1.0
+        temperature=100000
         # minimum temperature
         minTemperature = 0.00001
         
         # colling parameter
-        alph = 0.9
+        coolingRate = 0.003
         
         
         N, D = y.shape
@@ -737,10 +736,13 @@ class GaussianMixture(BaseGaussianMixture):
                     
                 else:
                     # All split perturbations had longer message lengths. Use metropolis criterion
-                    acceptance = 1/(1+exp((best_perturbation-I)/temperature))
-                    
-                cooling = log((initialTemperature/temperature))
-                temperature = initialTemperature * np.power(alph,cooling)
+                    #acceptance = 1/(1+exp((best_perturbation-I)/temperature))
+                    acceptance = np.exp((best_perturbation-I)/temperature)
+                    if random.uniform(0, 1) > acceptance:
+                        idx, I = best_perturbation
+                        mixture = self._proposed_mixtures[idx]
+                        self.set_parameters(**mixture.parameters)
+                temperature=temperature*(1-coolingRate)
                 # To update message length, max log likelihood tec
                 # TODO refactor
                 R, ll, I = self._expectation(y, **kwargs)
