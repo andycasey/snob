@@ -692,17 +692,25 @@ class GaussianMixture(BaseGaussianMixture):
             where :math:`N` is the number of observations, and :math:`D` is
             the number of dimensions per observation.
         """
-
+        #initiliase the temperature
+        temperature=1.0
+        initialTemperature=1.0
+        # minimum temperature
+        minTemperature = 0.00001
+        
+        # colling parameter
+        alph = 0.9
+        
+        
         N, D = y.shape
 
         # Initialize the mixture.
         self._initialize_parameters(y, **kwargs)
         R, ll, I = self._expectation(y, **kwargs)
 
-        converged = False
 
-        while not converged:
 
+        while temperature > minTemperature:
             while True:
 
                 # Split all components, and run partial E-M on each.
@@ -728,10 +736,11 @@ class GaussianMixture(BaseGaussianMixture):
                     # Take this mixture, and calculate a pdf for the next mixture.
                     
                 else:
-                    # All split perturbations had longer message lengths.
-                    converged = True
-                    break
-
+                    # All split perturbations had longer message lengths. Use metropolis criterion
+                    acceptance = 1/(1+exp((best_perturbation-I)/temperature))
+                    
+                cooling = log((initialTemperature/temperature))
+                temperature = initialTemperature * np.power(alph,cooling)
                 # To update message length, max log likelihood tec
                 # TODO refactor
                 R, ll, I = self._expectation(y, **kwargs)
