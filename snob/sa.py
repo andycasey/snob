@@ -738,7 +738,7 @@ class GaussianMixture(BaseGaussianMixture):
                     # All split perturbations had longer message lengths. Use metropolis criterion
                     #acceptance = 1/(1+exp((best_perturbation-I)/temperature))
                     acceptance = np.exp((best_perturbation-I)/temperature)
-                    if random.uniform(0, 1) > acceptance:
+                    if np.random.uniform(0,1) < acceptance[0]:
                         idx, I = best_perturbation
                         mixture = self._proposed_mixtures[idx]
                         self.set_parameters(**mixture.parameters)
