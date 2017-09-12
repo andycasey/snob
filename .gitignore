@@ -13,6 +13,12 @@ articles/*/vc.tex
 articles/*/*.bib
 articles/*/*.out
 
+*.fits
+*.fits.gz
+*.pkl
+
+notebooks/.ipynb_checkpoints/
+
 docs/build/
 
 sandbox_*.py
