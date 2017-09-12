@@ -2,10 +2,9 @@ import numpy as np
 from snob import mixture_slf as slf
 
 
-#y = np.loadtxt("cluster_abundances.txt")
 
-n_samples, n_features, n_clusters, rank = 1000, 50, 3, 1
-sigma = 1
+n_samples, n_features, n_clusters, rank = 1000, 50, 6, 1
+sigma = 0.5
 true_homo_specific_variances = sigma**2 * np.ones((1, n_features))
 
 
@@ -20,9 +19,13 @@ X = np.dot(true_factor_scores, true_factor_loads)
 
 # Assign objects to different clusters.
 indices = rng.randint(0, n_clusters, size=n_samples)
+true_weights = np.zeros(n_clusters)
 true_means = rng.randn(n_clusters, n_features)
 for index in range(n_clusters):
     X[indices==index] += true_means[index]
+    true_weights[index] = (indices==index).sum()
+
+true_weights = true_weights/n_samples
 
 # Adding homoscedastic noise
 bar = rng.randn(n_samples, n_features)
@@ -33,18 +36,11 @@ sigmas = sigma * rng.rand(n_features) + sigma / 2.
 X_hetero = X + rng.randn(n_samples, n_features) * sigmas
 true_hetero_specific_variances = sigmas**2
 
-#y = np.atleast_2d(np.loadtxt("coffee_example.txt")).T
+data = X_hetero
 
-#true_means = np.zeros((1, n_features))
+model = slf.SLFGMM(n_clusters)
+model.fit(data)
 
-model = slf.SLFGaussianMixture(n_clusters)
-#model.true_factor_scores = true_factor_scores
-#model.true_factor_loads = true_factor_loads
-#model.true_means = true_means
-#model.true_specific_variances = true_specific_variances
-model.fit(X_hetero)
-
-#model.initialize_parameters(X_homo)
 
 def scatter_common(x, y, title=None):
     fig, ax = plt.subplots()
@@ -60,14 +56,15 @@ def scatter_common(x, y, title=None):
 
 scatter_common(true_factor_loads, model.factor_loads, "factor loads")
 scatter_common(true_factor_scores, model.factor_scores, "factor scores")
-scatter_common(true_hetero_specific_variances, model.specific_variances, "specific variances")
+scatter_common(true_homo_specific_variances, model.specific_variances, "specific variances")
 
 # means
 # This one is tricky because the indices are not necessarily the same.
 # So just take whichever is closest.
 idx = np.zeros(n_clusters, dtype=int)
 for index, true_mean in enumerate(true_means):
-    distance = np.sum(np.abs(model._means - true_mean), axis=1)
+    distance = np.sum(np.abs(model._means - true_mean), axis=1) \
+             + np.abs(model.weights.flatten()[index] - true_weights)
     idx[index] = np.argmin(distance)
 
 assert len(idx) == len(set(idx))
@@ -81,7 +78,7 @@ scatter_common(true, inferred, "means")
 # Plot some data...
 
 fig, ax = plt.subplots()
-ax.scatter(X_homo[:, 0], X_homo[:, 1], facecolor="g")
+ax.scatter(data[:, 0], data[:, 1], facecolor="g")
 
 raise a
 

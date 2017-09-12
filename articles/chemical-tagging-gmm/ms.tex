@@ -588,7 +588,7 @@ $\likelihood\left(\data|\vecmean,\veccov\right)$,
 matrix is:
 
 \begin{eqnarray}
-  |\mathcal{F}(\vecmean_k)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = N^D|\veccov|^{-1} \quad .
+    |\mathcal{F}(\vecmean_k)| = \left|-\frac{\delta^2\likelihood}{\delta\vecmean^2}\right| = (N\weight_k)^D|\veccov|^{-1} \quad .
   \label{eq:approx-fisher-mean}
 \end{eqnarray}
 
@@ -599,10 +599,9 @@ Using theory of matrix derivatives based on matrix vectorization \citep{Dwyer_19
 determinant of the Fisher information for a covariance matrix
 $|\mathcal{F}\left(\veccov_k\right)|$,
 
-% TODO: This derivation is a nightmare to find
 
 \begin{equation}
-  |\mathcal{F}\left(\veccov_k\right)| = N^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)}
+    |\mathcal{F}\left(\veccov_k\right)| = (N\weight_k)^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)}
   \label{eq:approx-fisher-cov}
 \end{equation}
 
@@ -614,8 +613,8 @@ $|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|$ as:
 
 \begin{eqnarray}
   |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & |\mathcal{F}\left(\vecmean_k\right)|\cdot|\mathcal{F}\left(\veccov_k\right)| \nonumber \\
-  |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & N^{D}|\veccov_k|^{-1}N^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \nonumber \\
-  |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & N^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)} \quad .
+    |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & (N\weight_k)^{D}|\veccov_k|^{-1}(N\weight_k)^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \nonumber \\
+    |\mathcal{F}\left(\vecmean_k,\veccov_k\right)| & \approx & (N\weight_k)^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)} \quad .
   \label{eq:fisher-mean-cov}
 \end{eqnarray}
 
@@ -625,14 +624,14 @@ Thus for all $K$ mixtures, substituting Equations \ref{eq:prior-mean-cov} and
 \begin{eqnarray}
 I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{p(\vecmean_k,\veccov_k)} + \frac{1}{2}\sum_{k=1}^{K}\log{|\mathcal{F}\left(\vecmean_k,\veccov_k\right)|} \nonumber  \\
 I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{\left(|\veccov_k|^{\frac{D + 1}{2}}\right)}
- + \frac{1}{2}\sum_{k=1}^{K}\log{\left(N^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)}\right)} \nonumber \\
+    + \frac{1}{2}\sum_{k=1}^{K}\log{\left((N\weight_k)^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)}\right)} \nonumber \\
 I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\frac{D + 1}{2}\log|\veccov_k|
- + \frac{1}{2}\sum_{k=1}^{K}\left[\frac{D(D+3)}{2}\log{N} -D\log{2} -(D+2)\log|\veccov_k|\right] \nonumber \\
+ + \frac{1}{2}\sum_{k=1}^{K}\left[\frac{D(D+3)}{2}\log{N\weight_k} -D\log{2} -(D+2)\log|\veccov_k|\right] \nonumber \\
 I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\frac{D + 1}{2}\log|\veccov_k|
- + \frac{K}{2}\left[\frac{D\left(D+3\right)}{2}\log{N} - D\log{2}\right]
+ + \frac{K}{2}\left[\frac{D\left(D+3\right)}{2}\log{N\weight_k} - D\log{2}\right]
  -\sum_{k=1}^{K}\frac{D+2}{2}\log|\veccov_k| \nonumber \\
 I(\vecmean,\veccov) &=& \frac{1}{2}\sum_{k=1}^{K}\log|\veccov_k|
- + \frac{K}{2}\left[\frac{D\left(D+3\right)}{2}\log{N} - D\log{2}\right] \quad .
+ + \frac{K}{2}\left[\frac{D\left(D+3\right)}{2}\log{N\weight_k} - D\log{2}\right] \quad .
 \end{eqnarray}
 
 
@@ -734,7 +733,7 @@ for brevity), we arrive at our complete objective function:
       K\log{2} % I(K)
     + \frac{K - 1}{2}\log{N} - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k - \log{\Gamma(K)} % I(\weights) 
     + \frac{1}{2}\sum_{k=1}^{K}\log{|\veccov_k|} \nonumber \\ % 
-   &+&\frac{K}{2}\left[\frac{D(D+3)}{2}\log{N} - D\log{2}\right] % I(\vectheta_k) = I(\vecmean_k,\veccov_k)
+   &+&\frac{K}{2}\left[\frac{D(D+3)}{2}\log{N\weight_k} - D\log{2}\right] % I(\vectheta_k) = I(\vecmean_k,\veccov_k)
     - ND\log\mathcal{E} - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k) % I(\data|\vectheta)
     + \frac{1}{2}\left(\log{Q\pi} - Q\log{2\pi}\right) \quad . % lattice
     \label{eq:objective-function}

@@ -4,17 +4,17 @@ An estimator to model data using a fixed number of multivariate Gaussian
 distributions with a single multivariate latent factor.
 """
 
-__all__ = ["SLFGaussianMixture"]
+__all__ = ["SLFGMM"]
 
 import logging
 import numpy as np
 import scipy
-from sklearn import cluster
+from sklearn import (cluster, decomposition)
 
 logger = logging.getLogger(__name__)
 
 
-class SLFGaussianMixture(object):
+class SLFGMM(object):
 
     r"""
     Model data from a fixed number of multivariate Gaussian distributions with
@@ -24,7 +24,7 @@ class SLFGaussianMixture(object):
     expectation-maximization, with minimum message length describing the cost
     function.
 
-    :param num_mixtures:
+    :param num_components:
         The number of multivariate Gaussian mixtures to model.
 
     :param threshold: [optional]
@@ -35,10 +35,6 @@ class SLFGaussianMixture(object):
         The maximum number of iterations to run per expectation-maximization
         loop (default: ``10000``).
 
-    :param max_inner_iterations: [optional]
-        The maximum number of iterations to run when updating the latent
-        factor in the maximization step (default: ``1000``).
-
     :param initialization_method: [optional]
         The method to use to initialize the mixture parameters. Available
         options are: ``kmeans``, and ``random`` (default: ``kmeans``).
@@ -47,11 +43,11 @@ class SLFGaussianMixture(object):
     parameter_names = ("factor_loads", "factor_scores", "specific_variances",
         "means", "weights")
 
-    def __init__(self, num_mixtures, threshold=1e-5, max_em_iterations=10000,
-        max_inner_iterations=1000, initialization_method="kmeans", **kwargs):
+    def __init__(self, num_components, threshold=1e-5, max_em_iterations=10000,
+        initialization_method="kmeans++", **kwargs):
 
-        num_mixtures = int(num_mixtures)
-        if 1 > num_mixtures:
+        num_components = int(num_components)
+        if 1 > num_components:
             raise ValueError("number of mixtures must be a positive integer")
 
         if 0 >= threshold:
@@ -60,17 +56,16 @@ class SLFGaussianMixture(object):
         if 0 >= max_em_iterations:
             raise ValueError("max_em_iterations must be a positive integer")
 
-        available = ("kmeans", "random")
+        available = ("kmeans++", "random")
         initialization_method = initialization_method.strip().lower()
         if initialization_method not in available:
             raise ValueError(
                 "Initialization method '{}' is invalid. Must be one of: {}"\
                 .format(initialization_method, ", ".join(available)))
 
-        self.num_mixtures = num_mixtures
+        self.num_components = num_components
         self.threshold = threshold
         self.max_em_iterations = max_em_iterations
-        self.max_inner_iterations = max_inner_iterations
         self.initialization_method = initialization_method
         self.meta = {}
 
@@ -119,7 +114,50 @@ class SLFGaussianMixture(object):
         return self._specific_variances
 
 
-    def initialize_parameters(self, data, **kwargs):
+    def initialize_parameters(self, y, **kwargs):
+
+        N, D = y.shape
+
+
+        # Initialize the factor load.
+        fa = decomposition.FactorAnalysis(n_components=1, **kwargs)
+        fa.fit(y)
+
+        factor_load = fa.components_
+        specific_variance = fa.noise_variance_
+
+        b = factor_load/np.sqrt(specific_variance)
+        b_sq = np.sum(b**2)
+        factor_score = np.dot(y, b.T) * (1 - D/(N - 1) * b_sq)/(1 + b_sq)
+
+        y_nlf = y - np.dot(factor_score, factor_load)
+
+        if self.initialization_method == "kmeans++":
+
+            K = self.num_components
+            row_norms = cluster.k_means_.row_norms(y_nlf, squared=True)
+            mean = cluster.k_means_._k_init(
+                y_nlf, K, row_norms, 
+                cluster.k_means_.check_random_state(None))
+
+            distance = np.sum((y_nlf[:, :, None] - mean.T)**2, axis=1).T
+
+            responsibility = np.zeros((K, N))
+            responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
+
+            weight = responsibility.sum(axis=1)/N
+
+        else:
+            raise NotImplementedError
+
+
+        # Set the parameters.
+        return self.set_parameters(means=mean, weights=weight,
+            factor_loads=factor_load, factor_scores=factor_score, 
+            specific_variances=specific_variance)
+
+
+    def _old_initialize_parameters(self, data, **kwargs):
         r"""
         Initialize the model parameters, given the data.
 
@@ -154,6 +192,8 @@ class SLFGaussianMixture(object):
         factor_loads = specific_sigmas * b
         y = (data - means)/specific_sigmas
 
+        raise a
+
         b_sq = np.sum(b**2)
         factor_scores = np.dot(y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
         specific_variances = specific_sigmas**2
@@ -166,8 +206,9 @@ class SLFGaussianMixture(object):
 
         y_nlf = data - np.dot(factor_scores, factor_loads)
 
-        if self.initialization_method == "kmeans":
+        if self.initialization_method == "kmeans++":
 
+            raise a
             # Do k-means on the data without the latent factor.
             responsibility = np.zeros((N, self.num_mixtures))
             kmeans = cluster.KMeans(
@@ -222,12 +263,7 @@ class SLFGaussianMixture(object):
             the number of dimensions per observation.
         """
 
-        # parameters contains:
-        # (factor_loads, factor_scores, specific_variances, means, weights)
-        initial_parameters = self.initialize_parameters(data)
-
-        N, D = data.shape
-        iterations = 1
+        self.initialize_parameters(data)
 
         # Calculate the inital expectation.
         responsibility, log_likelihood = self._expectation(data) 
@@ -238,13 +274,13 @@ class SLFGaussianMixture(object):
             # Do conditional updates.
             # AECM
             # Do the CM-step 1, where we update the weights and means.
-            self._conditional_maximization_1(data, responsibility)
+            self._aecm_step_1(data, responsibility)
 
             # Compute the e-step of cycle 2
             responsibility, _ = self._expectation(data)
 
             # Do the M-step of cycle 2
-            self._conditional_maximization_2(data, responsibility)
+            self._aecm_step_2(data, responsibility)
 
             # Re-compute the expectation,
             responsibility, log_likelihood = self._expectation(data)
@@ -263,7 +299,8 @@ class SLFGaussianMixture(object):
         return self
 
 
-    def _expectation(self, data):
+
+    def _expectation(self, data, full_output=False):
         r"""
         Perform the expectation step of the expectation-maximization algorithm.
 
@@ -286,10 +323,12 @@ class SLFGaussianMixture(object):
 
         responsibility = np.exp(log_resp).T
         
-        return (responsibility, log_likelihood)
+        return (responsibility, log_likelihood, weighted_log_prob) \
+            if full_output else (responsibility, log_likelihood)
 
 
-    def _conditional_maximization_1(self, data, responsibility):
+
+    def _aecm_step_1(self, data, responsibility):
         r"""
         Perform the first conditional maximization step of the ECM algorithm,
         where we update the weights and the means.
@@ -309,6 +348,7 @@ class SLFGaussianMixture(object):
         M, N = responsibility.shape
         N, K = data.shape
 
+        '''
         effective_membership = np.sum(responsibility, axis=1)
         denominator = effective_membership.copy()
         denominator[denominator > 1] = denominator[denominator > 1] - 1
@@ -319,6 +359,16 @@ class SLFGaussianMixture(object):
                      / denominator[m]
 
         weights = (effective_membership + 0.5)/(N + M/2.0)
+        '''
+
+        # This is the ML implementatin, not MML.
+        effective_membership = np.sum(responsibility, axis=1)
+        weights = effective_membership/N
+
+        means = np.zeros((M, K))
+        for m in range(M):
+            means[m] = np.sum(responsibility[m] * data.T, axis=1) \
+                     / effective_membership[m]
 
         return self.set_parameters(weights=weights, means=means)
 
@@ -369,7 +419,7 @@ class SLFGaussianMixture(object):
 
         
 
-    def _conditional_maximization_2(self, data, responsibility):
+    def _aecm_step_2(self, data, responsibility):
         r"""
         Perform the second conditional maximization step of the AECM algorithm,
         where we update the factor loads and factor scores.
@@ -384,6 +434,35 @@ class SLFGaussianMixture(object):
             partially assigned to each :math:`K` component.
         """
         
+        N, D = data.shape
+        K, N = responsibility.shape
+
+        for k in range(K):
+            residual = data - self.means[k]
+
+
+            gamma = (
+                  np.dot(self.factor_loads, self.factor_loads.T) \
+                + self.specific_variances)**(-1) * self.factor_loads
+
+            omega = np.eye(D) - np.dot(gamma.T, self.factor_loads)
+
+            V = np.dot(responsibility[k], np.dot(residual, residual.T)) \
+              / np.sum(responsibility[k])
+            V = np.atleast_2d(V).T
+
+            Cinv = np.linalg.inv((
+                np.dot(gamma, np.atleast_2d(np.dot(V, gamma).sum(axis=0)).T) + omega))
+            B = np.dot(V, np.dot(gamma, Cinv))
+
+
+            raise a
+
+            #V = self.weight * np.dot(residual, residual.T) \
+            #  / np.sum(self.)
+
+
+
         M, N = responsibility.shape
         N, K = data.shape
 
@@ -397,7 +476,7 @@ class SLFGaussianMixture(object):
 
         b = (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
 
-        for iteration in range(self.max_inner_iterations):
+        for iteration in range(self.max_em_iterations):
 
             # The iteration scheme is from Wallace & Freeman (1992)
             #if (N - 1) * np.sum(b**2) <= K:
