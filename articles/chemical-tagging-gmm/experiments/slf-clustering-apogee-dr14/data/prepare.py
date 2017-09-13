@@ -74,9 +74,8 @@ transfer_columns = (
     "REDUCTION_ID",
     "PMRA",
     "PMDEC",
-    "PM_SRC",
-    "ALL_VISITS",
-    "VISITS")
+    "PM_SRC"
+)
 
 for column in transfer_columns:
     cannon[column] = aspcap[column]
