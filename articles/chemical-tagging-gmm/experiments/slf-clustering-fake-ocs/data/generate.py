@@ -19,10 +19,12 @@
 #     work of Chen et al. (2003): http://adsabs.harvard.edu/abs/2003AJ....125.1397C
 
 
+import pickle
 import numpy as np
 from astropy.table import Table
 
-np.random.seed(1)
+random_seed = 1
+np.random.seed(random_seed)
 
 oc_mean_properties = Table.read("Chen-et-al-2003-AJ-125-1397-table1.fits")
 
@@ -45,8 +47,14 @@ magnitude_of_factor_load = 0.1
 # --------------------- #
 
 
-data = []
+
 K = len(elements_measured)
+
+data = []
+all_variates = []
+all_factor_scores = []
+all_factor_loads = []
+
 
 for i, open_cluster in enumerate(oc_mean_properties):
 
@@ -82,6 +90,10 @@ for i, open_cluster in enumerate(oc_mean_properties):
 
     data.extend(rows)
 
+    all_variates.append(variates)
+    all_factor_loads.append(factor_loads)
+    all_factor_scores.append(factor_scores)
+
 
 # Generate a faux-catalog.
 names = ["star_id", "cluster_id"]
@@ -98,3 +110,17 @@ for column_name in ("star_id", "cluster_id"):
     stars[column_name] = np.array(stars[column_name], dtype=int)
 
 stars.write("catalog.fits", overwrite=True)
+
+
+# Load the data that we may want to compare with later.
+generated_parameters = dict(
+    random_seed=random_seed,
+    means=means,
+    variates=np.vstack(all_variates),
+    factor_loads=np.vstack(all_factor_loads),
+    factor_scores=np.vstack(all_factor_scores),
+    specific_sigmas=specific_sigmas
+)
+
+with open("generated-parameters.pkl", "wb") as fp:
+    pickle.dump(generated_parameters, fp, -1)
