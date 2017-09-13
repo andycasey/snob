@@ -12,7 +12,6 @@ aspcap["APOGEE_ID"] = [each.strip() for each in aspcap["APOGEE_ID"]]
 assert len(cannon) == len(aspcap)
 assert all(aspcap["APOGEE_ID"] == cannon["APOGEE_ID"])
 
-
 # Transfer the following labels from ASPCAP table to The Cannon table:
 transfer_columns = (
     "APSTAR_ID",
@@ -23,12 +22,6 @@ transfer_columns = (
     "TELESCOPE",
     "LOCATION_ID",
     "FIELD",
-    "J",
-    "J_ERR",
-    "H",
-    "H_ERR",
-    "K",
-    "K_ERR",
     "RA",
     "DEC",
     "GLON",
@@ -58,13 +51,6 @@ transfer_columns = (
     "SYNTHVSCATTER",
     "SYNTHVERR",
     "SYNTHVERR_MED",
-    "RV_TEFF",
-    "RV_LOGG",
-    "RV_FEH",
-    "RV_ALPHA",
-    "RV_CARB",
-    "RV_CCFWHM",
-    "RV_AUTOFWHM",
     "SYNTHSCATTER",
     "STABLERV_CHI2",
     "STABLERV_RCHI2",
@@ -80,41 +66,12 @@ transfer_columns = (
     "ASPCAP_VERSION",
     "RESULTS_VERSION",
     "EXTRATARG",
-    "MIN_H",
-    "MAX_H",
-    "MIN_JK",
-    "MAX_JK",
     "VMICRO",
     "VMACRO",
     "VSINI",
     "ASPCAPFLAG",
     "ASPCAPFLAGS",
     "REDUCTION_ID",
-    "SRC_H",
-    "WASH_M",
-    "WASH_M_ERR",
-    "WASH_T2",
-    "WASH_T2_ERR",
-    "DDO51",
-    "DDO51_ERR",
-    "IRAC_3_6",
-    "IRAC_3_6_ERR",
-    "IRAC_4_5",
-    "IRAC_4_5_ERR",
-    "IRAC_5_8",
-    "IRAC_5_8_ERR",
-    "IRAC_8_0",
-    "IRAC_8_0_ERR",
-    "WISE_4_5",
-    "WISE_4_5_ERR",
-    "TARG_4_5",
-    "TARG_4_5_ERR",
-    "AK_TARG",
-    "AK_TARG_METHOD",
-    "AK_WISE",
-    "SFD_EBV",
-    "WASH_DDO51_GIANT_FLAG",
-    "WASH_DDO51_STAR_FLAG",
     "PMRA",
     "PMDEC",
     "PM_SRC",
@@ -124,8 +81,9 @@ transfer_columns = (
 for column in transfer_columns:
     cannon[column] = aspcap[column]
 
-# Put NaN's into some columns?
-
+# Remove rows that we don't have results for.
+keep = cannon["TEFF"] > 0
+cannon = cannon[keep]
 
 cannon.write(output_filename, overwrite=True)
 print("Written to {}".format(output_filename))
