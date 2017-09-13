@@ -47,14 +47,17 @@ magnitude_of_factor_load = 0.1
 # --------------------- #
 
 
-
 K = len(elements_measured)
 
-data = []
-all_variates = []
-all_factor_scores = []
-all_factor_loads = []
+# Generate the factor_loads (a_k)
+factor_loads = np.random.uniform(
+    -abs(magnitude_of_factor_load), 
+    +abs(magnitude_of_factor_load),
+    size=(1, K))
 
+data = []
+cluster_variates = []
+cluster_factor_scores = []
 
 for i, open_cluster in enumerate(oc_mean_properties):
 
@@ -66,12 +69,6 @@ for i, open_cluster in enumerate(oc_mean_properties):
     # Determine the cluster fingerprint.
     # factor_scores (v_n)
     factor_scores = np.random.normal(0, 1, size=(N_cluster, 1))
-
-    # factor_loads (a_k)
-    factor_loads = np.random.uniform(
-        -abs(magnitude_of_factor_load), 
-        +abs(magnitude_of_factor_load),
-        size=(1, K))
 
     # variates (r_{nk})
     variates = np.random.normal(0, 1, size=(N_cluster, K))
@@ -90,9 +87,8 @@ for i, open_cluster in enumerate(oc_mean_properties):
 
     data.extend(rows)
 
-    all_variates.append(variates)
-    all_factor_loads.append(factor_loads)
-    all_factor_scores.append(factor_scores)
+    cluster_variates.append(variates)
+    cluster_factor_scores.append(factor_scores)
 
 
 # Generate a faux-catalog.
@@ -116,9 +112,9 @@ stars.write("catalog.fits", overwrite=True)
 generated_parameters = dict(
     random_seed=random_seed,
     means=means,
-    variates=np.vstack(all_variates),
-    factor_loads=np.vstack(all_factor_loads),
-    factor_scores=np.vstack(all_factor_scores),
+    variates=np.vstack(cluster_variates),
+    factor_loads=factor_loads,
+    factor_scores=np.vstack(cluster_factor_scores),
     specific_sigmas=specific_sigmas
 )
 

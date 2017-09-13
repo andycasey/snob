@@ -101,10 +101,16 @@ for K_true in range(10, K_clusters_total):
 
         match = np.in1d(catalog["cluster_id"], selected_cluster_ids)
 
-
         model = decomposition.FactorAnalysis(n_components=1)
-
         model = model.fit(X[match])
+
+        # model.components_ == +gp["factor_loads"]
+        # OR
+        # model.components_ == -gp["factor_loads"]
+
+        # AND
+        # model.means_ == gp["means"]
+
 
         raise a
 
