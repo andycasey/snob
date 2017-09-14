@@ -32,6 +32,7 @@ oc_mean_properties = Table.read("Chen-et-al-2003-AJ-125-1397-table1.fits")
 # Adjustable parameters #
 # --------------------- #
 elements_measured = ("Fe", "Ti", "Ca", "Si")
+elements_measured = "ABCDEFGHIJKLMNO"
 
 def draw_number_of_stars_in_cluster(mean_cluster_abundance=None):
     return np.random.randint(1, 250)
@@ -40,8 +41,10 @@ means = np.mean(oc_mean_properties["__Fe_H_"]) \
       + np.random.normal(0, 0.1, size=len(elements_measured))
 
 specific_sigmas = np.clip(
-    np.abs(np.random.normal(0, 0.03, size=len(elements_measured))),
-    0.01, 0.10)
+    np.abs(np.random.normal(0, 0.01, size=len(elements_measured))),
+    0.005, 0.05)
+
+cluster_dispersion = 0.01
 
 magnitude_of_factor_load = 0.1
 # --------------------- #
@@ -59,6 +62,7 @@ data = []
 cluster_variates = []
 cluster_factor_scores = []
 
+
 for i, open_cluster in enumerate(oc_mean_properties):
 
     mean_cluster_abundance = open_cluster["__Fe_H_"]
@@ -68,7 +72,9 @@ for i, open_cluster in enumerate(oc_mean_properties):
 
     # Determine the cluster fingerprint.
     # factor_scores (v_n)
-    factor_scores = np.random.normal(0, 1, size=(N_cluster, 1))
+    factor_scores = np.random.normal(0, 1) * np.ones((N_cluster, 1))
+    #+ np.random.normal(1, cluster_dispersion, 
+    #  size=(N_cluster, 1))
 
     # variates (r_{nk})
     variates = np.random.normal(0, 1, size=(N_cluster, K))
@@ -78,6 +84,12 @@ for i, open_cluster in enumerate(oc_mean_properties):
                        + specific_sigmas * variates
 
     # TODO: add measurement noise.
+
+    """
+    _ = ax.plot(np.mean(means + np.dot(factor_scores, factor_loads), axis=0),
+     lw=2)
+    ax.plot(stellar_abundances.T, c=_[0].get_color(), zorder=-1, alpha=0.1)
+    """
 
     # Generate rows for the faux catalog.
     rows = np.vstack([
@@ -89,6 +101,7 @@ for i, open_cluster in enumerate(oc_mean_properties):
 
     cluster_variates.append(variates)
     cluster_factor_scores.append(factor_scores)
+
 
 
 # Generate a faux-catalog.
