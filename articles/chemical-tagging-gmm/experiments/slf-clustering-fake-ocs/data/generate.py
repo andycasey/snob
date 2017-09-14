@@ -51,12 +51,13 @@ magnitude_of_factor_load = 0.1
 
 
 K = len(elements_measured)
+L = 1 # number of latent factors.
 
 # Generate the factor_loads (a_k)
 factor_loads = np.random.uniform(
     -abs(magnitude_of_factor_load), 
     +abs(magnitude_of_factor_load),
-    size=(1, K))
+    size=(L, K))
 
 data = []
 cluster_variates = []
@@ -72,7 +73,7 @@ for i, open_cluster in enumerate(oc_mean_properties):
 
     # Determine the cluster fingerprint.
     # factor_scores (v_n)
-    factor_scores = np.random.normal(0, 1) * np.ones((N_cluster, 1))
+    factor_scores = np.random.normal(0, 1.) * np.ones((N_cluster, 1))
     #+ np.random.normal(1, cluster_dispersion, 
     #  size=(N_cluster, 1))
 

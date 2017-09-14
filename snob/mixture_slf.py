@@ -455,9 +455,6 @@ class SLFGMM(object):
                 np.dot(gamma, np.atleast_2d(np.dot(V, gamma).sum(axis=0)).T) + omega))
             B = np.dot(V, np.dot(gamma, Cinv))
 
-
-            raise a
-
             #V = self.weight * np.dot(residual, residual.T) \
             #  / np.sum(self.)
 
