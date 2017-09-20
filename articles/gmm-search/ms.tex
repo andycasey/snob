@@ -73,13 +73,14 @@
 \section{Introduction} 
 \label{sec:introduction}
 
-
+\section{MML}
+\
 There are $N$ data points each with $D$ dimensions, which are to be modelled
 by $K$ mixture of $D$-dimensional gaussian distributions, each with a relative
 weighting $\weight_k$ such that $\sum_{k=1}^{K}\weight_k = 1$. 
 The data have the same error value, $y_{err}$, in all $D$ dimensions, for all $N$ observations.
 
-The full expression for the message length of a
+The full expression for the message length is
 given by,
 
 \begin{eqnarray}
@@ -182,7 +183,7 @@ The k-means++ algorithm extends the k-means method with an efficient way of choo
 
 k-means++ is O(log k)-Competitive.
 
-\section{Email from David}
+\section{The Heuristic}
 
 Re the case of two (or more) classes with the same mean:
 In 2D, a simple case in point is two classes with the same mean
@@ -196,6 +197,7 @@ If it could be done quickly, one could transform to a circle, and then
 some test (e.g., Kolmogorov-Smirnov test) for whether data is uniform
 in radial distribution [0, 2 $\pi$).  If not uniform, then perhaps grounds for
 splitting.
+
 One could possibly check whether uniform radially directly from the
 original 2D projection without having to project it to a circle (i.e., it
 might be pretty easy to work out what the angle of each point would
@@ -203,58 +205,57 @@ be post-transformation without having to do the transformation).  The
 2D projection is 1D in the sense that we only care about the angle
 around the circle.  And, again, Kolmogorov-Smirnov is a popular test
 for uniformity.
+
 Re looking at things in 1 dimension (not 2D followed by 1D [0, 2 pi) angle
 as above but rather projecting on eigenvector of largest eigenvalue), we
 discussed moments - e.g., \url{https://en.wikipedia.org/wiki/Normal_distribution} .
 So, 2nd, 4th, 6th and 8th moments of a true Gaussian are 1, 3, 15, 105.
+
 The heuristic I'm going to propose is independent (i.e., I haven't heard
 of it before), but it seems pretty easy, it mightn't be original, and I can
 conceive that Andy might already be using it.
+
 Let's suppose we have a 1D component.  We'll shift it (without loss of
 generality, w.l.o.g.) so that its mean is 0 and we'll shrink or expand it
 (again, w.l.o.g.) so that its s.d. ($\sigma$) is 1 (and variance v is 1).
+
 We consider now splitting it into K components with mean 0,
-mixing weights (or proportions) $p_1, ..., p_i, ..., p_K$ and s.d.s $sigma_i$ (and variances $v_i = (sigma_i)^2$).
+mixing weights (or proportions) $p_1, ..., p_i, ..., p_K$ and s.d.s $\sigma_i$ (and variances $v_i = (\sigma_i)^2$).
 Let's set $K = 2, so p_2 = 1 - p_1$.
-Suppose the moments of our current component are 1, 3 $alpha_4, 15 alpha_6 and 105 alpha_8, ... $.
+
+Suppose the moments of our current component are 1, $3 \alpha_4, 15 \alpha_6 and 105 \alpha_8, ... $.
 We get some equations - if we have the correct number of equations,
 they're simultaneous equations.
+
 If we get too many equations (by using too many moments), then it
 becomes something of a fitting or regression problem to choose
-$p_1, ..., p_i, ..., p_K$ and s.d.s $sigma_i$, variances $v_i = (sigma_i)^2$.
+$p_1, ..., p_i, ..., p_K$ and s.d.s $\sigma_i$, variances $v_i = (\sigma_i)^2$.
+
 Our simultaneous equations are:
 $p_1 v_1       + (1 - p_1) v_2       =    1$
-$p_1 (v_1)^2  + (1 - p_1) (v_2)^2  =    3 alpha_4$
-$p_1 (v_1)^3  + (1 - p_1) (v_2)^3  =   15 alpha_6$
-$p_1 (v_1)^4  + (1 - p_1) (v_2)^4  =  105 alpha_8$
+$p_1 (v_1)^2  + (1 - p_1) (v_2)^2  =    3 \alpha_4$
+$p_1 (v_1)^3  + (1 - p_1) (v_2)^3  =   15 \alpha_6$
+$p_1 (v_1)^4  + (1 - p_1) (v_2)^4  =  105 \alpha_8$
 (and possibly etc., as possibly needed).
 
-These might be messy to solve on the fly    but
+These might be messy to solve on the fly  but
 one could pre-process by solving many of these beforehand
 (actually, approximately solving these beforehand, as it's only
 a heuristic, anyway) at the very start of the program while
 loading in the data.
-(I remember that Chris Wallace got me to do this a similar
-pre-processing step when dealing with von Mises angular/circular data.)
-So, for $1000 x 1000 = 10^6$ different values of $alpha_4 and alpha_6$
-or for $100 x 100 x 100 = 10^6$ different values of $alpha_4, alpha_6 and alpha_8$
-one could pre-compute {\em approximate} (rough heuristic)
-1,000,000ish or so `solutions' to the above simultaneous equations.
-Then, when running the program with real actual values of $alpha_4$ and $alpha_6$ (and $alpha_8$),
+
+(I remember that Chris Wallace got me to do this a similar pre-processing step when dealing with von Mises angular/circular data.)
+So, for $1000 x 1000 = 10^6$ different values of $\alpha_4 and \alpha_6$
+or for $100 x 100 x 100 = 10^6$ different values of $\alpha_4, \alpha_6 and \alpha_8$
+one could pre-compute {\em approximate} (rough heuristic) 1,000,000ish or so `solutions' to the above simultaneous equations.
+
+Then, when running the program with real actual values of $\alpha_4$ and $\alpha_6$ (and $\alpha_8$),
 one could just grab something from nearby in this pre-computed look-up table
 as putative values for $p_1, v_1, v_2$ (and etc., if need be).
 
-I'm not sure whether you're already doing (something like) this.
-If so, am at least slightly but not totally surprised.
-If you're not doing this, it seems worth considering.
-As stated above, `solutions' only need to be rough.
 And, of course, one could change K from 2 to something bigger.
 
-This all said, there should still be some use of randomness in the search.
-
-I hope that the above is clear.
-I hope it's accurate.
-I hope that it or a simplified or more general variant might be useful.
+There should still be some use of randomness in the search.
 
 \begin{thebibliography}{}
 
