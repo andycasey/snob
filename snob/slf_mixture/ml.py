@@ -19,26 +19,33 @@ logger = logging.getLogger("snob")
 
 class MLMixtureModel(BaseMixtureModel):
     
+    def initialize_parameters(self, data, **kwargs):
+        r"""
+        Initialize the model parameters, given the data.
 
-    def initialize_parameters(self, y, **kwargs):
+        :param data:
+            A :math:`N\times{}D` array of the observations :math:`y`,
+            where :math:`N` is the number of observations, and :math:`D` is
+            the number of dimensions per observation.
+        """
 
-        N, D = y.shape
+        N, D = data.shape
 
         # Initialize the factor load.
         fa = decomposition.FactorAnalysis(n_components=1, **kwargs)
-        fa.fit(y)
+        fa.fit(data)
 
-        factor_load = fa.components_
+        factor_loads = fa.components_
         specific_variance = fa.noise_variance_
 
-        b = factor_load/np.sqrt(specific_variance)
+        b = factor_loads/np.sqrt(specific_variance)
         b_sq = np.sum(b**2)
-        factor_score = np.dot(y, b.T) * (1 - D/(N - 1) * b_sq)/(1 + b_sq)
+        factor_scores = np.dot(data, b.T) * (1 - D/(N - 1) * b_sq)/(1 + b_sq)
 
-        y_nlf = y - np.dot(factor_score, factor_load)
+        y_nlf = data - np.dot(factor_scores, factor_loads)
 
         if self.initialization_method == "kmeans++":
-
+            # Assign cluster memberships to the transformed data.
             K = self.num_components
             row_norms = cluster.k_means_.row_norms(y_nlf, squared=True)
             mean = cluster.k_means_._k_init(
@@ -50,15 +57,17 @@ class MLMixtureModel(BaseMixtureModel):
             responsibility = np.zeros((K, N))
             responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
 
-            weight = responsibility.sum(axis=1)/N
-
         else:
-            raise NotImplementedError("random assignment not implemented yet"\
-                                      " for max likelihood SLF mixture model")
+            # Randomly assign points.
+            responsibility = np.random.randint(0, self.num_components, size=N)
+            responsibility /= responsibility.sum(axis=1)[:, np.newaxis]
+
+        # Calculate weights from the responsibility initialisation.
+        weights = responsibility.sum(axis=1)/N
 
         # Set the parameters.
-        return self.set_parameters(means=mean, weights=weight,
-            factor_loads=factor_load, factor_scores=factor_score, 
+        return self.set_parameters(means=mean, weights=weights,
+            factor_loads=factor_loads, factor_scores=factor_scores, 
             specific_variances=specific_variance)
 
 
