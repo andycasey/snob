@@ -33,13 +33,14 @@ K_clusters_total = len(set(catalog["cluster_id"]))
 #keep = catalog["cluster_id"] < 10
 #X = X[keep]
 
-ml_mod = MLMixtureModel(num_components=2)
-ml_mod.fit(X)
 
 
 mml_mod = MMLMixtureModel(num_components=2)
 mml_mod.fit(X)
 
+
+ml_mod = MLMixtureModel(num_components=2)
+ml_mod.fit(X)
 
 
 for parameter_name in ("factor_scores", "factor_loads"):

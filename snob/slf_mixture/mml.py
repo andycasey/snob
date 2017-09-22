@@ -33,6 +33,9 @@ class MMLMixtureModel(BaseMixtureModel):
         # Estimate the latent factor first.
         N, D = data.shape
 
+        # Excuse the terminology problem here, but means here refers to the 
+        # single mean for the entire sample, not the cluster means!
+        # TODO REVISIT TERMINOLOGY
         means = np.mean(data, axis=0)
         w = data - means
 
@@ -50,20 +53,23 @@ class MMLMixtureModel(BaseMixtureModel):
         specific_variances = np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1))
         factor_loads = (np.sqrt(specific_variances) * b).reshape((1, -1))
 
-        y_nlf = data - np.dot(factor_scores, factor_loads)
+        #y_nlf = data - np.dot(factor_scores, factor_loads)
 
+        # We want to do the clustering on the factor scores.
+        
+        responsibility = np.zeros((N, self.num_components))
+            
         if self.initialization_method == "kmeans++":
             # Assign cluster memberships to the transformed data.
-            responsibility = np.zeros((N, self.num_components))
             kmeans = cluster.KMeans(
                 n_clusters=self.num_components, n_init=1, **kwargs)
-            labels = kmeans.fit(y_nlf).labels_
-            responsibility[np.arange(N), labels] = 1
-
+            assignments = kmeans.fit(factor_scores).labels_
+            
         elif self.initialization_method == "random":
             # Randomly assign points.
-            responsibility = np.random.randint(0, self.num_components, size=N)
-            responsibility /= responsibility.sum(axis=1)[:, np.newaxis]
+            assignments = np.random.randint(0, self.num_components, size=N)
+
+        responsibility[np.arange(N), assignments] = 1.0
 
         # Calculate the weights from the responsibility initialisation.
         effective_membership = np.sum(responsibility, axis=0)
@@ -73,8 +79,6 @@ class MMLMixtureModel(BaseMixtureModel):
         return self.set_parameters(means=means, weights=weights,
             factor_loads=factor_loads, factor_scores=factor_scores, 
             specific_variances=specific_variances)
-
-
 
 
     def _aecm_step_1(self, data, responsibility):
@@ -110,8 +114,9 @@ class MMLMixtureModel(BaseMixtureModel):
 
         logger.debug("_aecm_step_1 weights {}".format(weights))
 
-        return self.set_parameters(weights=weights, means=means)
+        raise a
 
+        return self.set_parameters(weights=weights, means=means)
 
 
     def _aecm_step_2(self, data, responsibility):
@@ -191,7 +196,7 @@ class MMLMixtureModel(BaseMixtureModel):
             change = np.sum(np.abs(b - new_b))
 
             logger.debug("_aecm_step_2: {} {} {}".format(iteration, change, b))
-            
+
             if not np.isfinite(change):
                 raise a
 
