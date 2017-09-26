@@ -167,15 +167,8 @@ hinders the fit of the latent factor model. In current (non-MML) methods these t
 (of course, we can instruct it not to do this if we prefer). This is a significant advantage over other techniques that have been investigated so far.
 
 
-One very substantial difference between MML's latent factors and PCA is the following: if we increase the noise in 
-one of the variables, the relevant PC will move in the direction of the noise, ultimately with increasing eigenvalue. 
-But for single latent factor analysis, the latent factor 
-%load vector 
-won't change, rather the noise %($\sigma$) 
-in the relevant variable will increase. This is a very desirable characteristic, helping to isolate
-the underlying physics from random effects, and is an indication of the robustness of latent factors
-%models towards 
-to errors in measurements. 
+%One very substantial difference between MML's latent factors and PCA is the following: if we increase the noise in one of the variables, the relevant PC will move in the direction of the noise, ultimately with increasing eigenvalue. But for single latent factor analysis, the latent factor won't change, rather the noise %($\sigma$) 
+%in the relevant variable will increase. This is a very desirable characteristic, helping to isolate the underlying physics from random effects, and is an indication of the robustness of latent factors to errors in measurements. 
 
 For each group determined by MML, the latent factor is a vector that best encapsulates the location 
 and distribution of this group in \Cspaceno.
@@ -198,24 +191,26 @@ variability with standard deviation $\sigma_k$. The MML \textit{message} contain
 
 
 \begin{itemize}
-	{\setlength\itemindent{5mm}\item[\textbf{1a)}] A statement of the number of groups, or classes, $C$.}
-	%Each class is assumed to have the same prior probability, equal to $2^{-K}$. The length of this part is equal to the negative logarithm of the prior, i.e. $K$. 
-	
-	{\setlength\itemindent{5mm}\item[\textbf{1b)}] The relative abundances (or mixing proportions) of the amount(s) of data in each group. 
+\item[\textbf{1a)}] A statement of the number of groups, or classes, $C$. Each class is assumed to have the same prior probability, equal to $2^{-K}$. The length of this part is equal to the negative logarithm of the prior, i.e. $K$. 
+\item[\textbf{1b)}] The relative abundances (or mixing proportions) of the amount(s) of data in each group. 
 		The length of this 
 		%part is equal to the negative log likelihood of the multiplication of the prior probabilities 
 		part is equal (within a small constant) to the negative log of the multiplication of the prior probabilities
 		of each group ($h(\vec{p})$) divided by the square root of the Fisher information ($\sqrt{F(\vec{p_k})}$). 
-		The Fisher information matrix contains the expected second-order partial derivatives of the log-likelihood function, and quantifies how sharply the likelihood function peaks, and as a result how precisely the parameters should be stated.}
-	%In the case of uniform prior probabilities $h(\vec{p}) = (K-1)!$, and the Fisher information $F(\vec{p}) = N^{K-1} / (\prod_{k=1}^{K} p_k)$. It follows that the length of this part is equal to $- \log( h(\vec{p}) \times (1 / \sqrt{{\kappa_K}^K F(\vec{p})}) ) = - \log((K-1)!) + (K/2) \log(\kappa_K) + ((K-1)/2) \log(N) - (1/2) \sum_{k=1}^{K} \log(p_k)$, where $\kappa_K$ is a lattice constant (varying between $1/12$ and $1/(2 \pi e)$).
+		The Fisher information matrix contains the expected second-order partial derivatives of the log-likelihood function, and quantifies how sharply the likelihood function peaks, and as a result how precisely the parameters should be stated.
 	
-	{\setlength\itemindent{5mm}\item[\textbf{1c)}] The distributional parameters $\mu_k$ and $\sigma_k$ 
+	In the case of uniform prior probabilities $h(\vec{p}) = (K-1)!$, and the Fisher information $F(\vec{p}) = N^{K-1} / (\prod_{k=1}^{K} p_k)$. It follows that the length of this part is equal to $- \log( h(\vec{p}) \times (1 / \sqrt{{\kappa_K}^K F(\vec{p})}) ) = - \log((K-1)!) + (K/2) \log(\kappa_K) + ((K-1)/2) \log(N) - (1/2) \sum_{k=1}^{K} \log(p_k)$, where $\kappa_K$ is a lattice constant (varying between $1/12$ and $1/(2 \pi e)$).
+	
+\item[\textbf{1c)}] The distributional parameters $\mu_k$ and $\sigma_k$ 
 		(one for each attribute or dimension  $k$) and the factor
-		load (and score) vectors for each group, again rounded off as above using the Fisher information.}
-	%The explanation length of this part is $(N-1)\sum_k log \sigma_k + \frac{1}{2}[K log (N \sum_n \nu_n^2 - (\sum_n\nu_n)^2) + (N+K-1) log(1+\sum_k(a_k/\sigma_k)^2)] + \frac{1}{2} [\sum_n \nu_n^2 + \sum_n \sum_k (x_{nk} \mu_k - v_na_k)^2/\sigma_k^2]$. This part measures the information required to encode the latent factor model for each class. The more classes, the longer the message length is.
+		load (and score) vectors for each group, again rounded off as above using the Fisher information.
 	
-	{\setlength\itemindent{5mm}\item[\textbf{2)}] The data given the model, whose cost is the well-known statistical log-likelihood. }
-	%In the case of a normal distribution, this is equal to $-log p_k(x) (1/(\sigma_k \sqrt(2\pi) e^{-\frac{(x-\mu_k)^2}{2\sigma_k^2}})$.
+	The explanation length of this part is $(N-1)\sum_k log \sigma_k + \frac{1}{2}[K log (N \sum_n \nu_n^2 - (\sum_n\nu_n)^2) + (N+K-1) log(1+\sum_k(a_k/\sigma_k)^2)] + \frac{1}{2} [\sum_n \nu_n^2 + \sum_n \sum_k (x_{nk} \mu_k - v_na_k)^2/\sigma_k^2]$. This part measures the information required to encode the latent factor model for each class. The more classes, the longer the message length is.
+	
+\item[\textbf{2)}] The data given the model, whose cost is the well-known statistical log-likelihood. 
+	In the case of a normal distribution, this is equal to 
+	
+	$$-\log p_k(x) (1/(\sigma_k \sqrt(2\pi) e^{-\frac{(x-\mu_k)^2}{2\sigma_k^2}}).$$
 \end{itemize}
 
 \vspace{-1mm}
@@ -318,8 +313,8 @@ Q^{(old)} - Q^{(new)} &=& -\frac{1}{2}D(D+3) + 2K  - 1
 \noindent{}gives us,
 
 \begin{eqnarray}
-  \log{Q^{(new)}} - \log{Q^{(old)}} &=& \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} - \log{\left(\frac{1}{2}DK(D + 3)\right)} \nonumber \\
-                                    &&+ \log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} - \log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)} \quad .\\
+  \log{Q^{(new)}} &- \log{Q^{(old)}} = \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} - \log{\left(\frac{1}{2}DK(D + 3)\right)} \nonumber \\
+                                    &+ \log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} - \log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)}.
 \end{eqnarray}
 The second row of terms can be ignored because they are very small (typically less than 1 bit). This is because as $K \rightarrow \infinity$, $2K/D(K+1)(D+3) \rightarrow 1$, thus $\log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} \rightarrow \log{2}$. Similarly as $D \rightarrow \infinity$, $2K/D(K+1)(D+3) \rightarrow 0$.
 
@@ -336,7 +331,7 @@ As $K \rightarrow \infinity$ then $2(K-1)/DK(D+3) \rightarrow 1$ and as $D \righ
 \noindent{}Substituting Eqs. \ref{eq:19} and \ref{eq:14} into \ref{eq:13} yields:
 
 \begin{eqnarray}
-\Delta{}I_{K+1} - I_K &\approx& \log{2} % \Delta{}I_k
+\Delta{}I_{K+1} &-& I_K \approx \log{2} % \Delta{}I_k
     + \frac{1}{2}\log{N} - \log{K} - \frac{1}{2}\left(\sum_{k=1}^{K+1}\log{w_k^{(new)}} - \sum_{k=1}^{K}\log{w_k^{(old)}}\right) \nonumber \\ % \Delta{}I_w
 && + \mathcal{L}^{(new)} - \mathcal{L}^{(old)} \nonumber \\ % likelihood
 && + \frac{1}{2}\left[\frac{D(D+3)}{2}\left(\sum_{k=1}^{K+1}\log{Nw_k^{(new)} - \sum_{k=1}^{K+1}\log{Nw_k^{(old)}}} \right) - \left(D+2\right)\left(\sum_{k=1}^{K+1}\log{|\veccov_k|^{(new)}} - \sum_{k=1}^{K+1}\log{|\veccov_k|^{(old)}}\right)\right] \nonumber \\
