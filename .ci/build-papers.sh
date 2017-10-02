@@ -10,6 +10,16 @@ for folder in "${folders[@]}"
 do
    cd $TRAVIS_BUILD_DIR
    cd "articles/$folder"
+
+   # Create vc.tex file with \githash, \gitdate, and \gitauthor
+   echo '\newcommand{\giturl}{\url{%' >> vc.tex
+   git config --get remote.origin.url | sed "s/\.git$$//" | sed "s/^ssh:\/\///g" | sed "s/^git\@github\.com:/https:\/\/www\.github\.com\//" >> vc.tex
+   echo '}}' >> vc.tex
+   git log -1 --date=short --format="format:\\newcommand{\\githash}{%h}\\newcommand{\\gitdate}{%ad}\\newcommand{\\gitauthor}{%an}" >> vc.tex
+   # Safely replace newline character if it exists
+   cat vc.tex | sed "s/^ewcommand/\\\newcommand/" > vc_safe.tex
+   mv vc_safe.tex vc.tex
+
    tectonic ms.tex --print
 done
 
