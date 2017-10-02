@@ -1,62 +1,66 @@
-# This configuration file will make Travis CI do the following:
-# - download the latest source
-# - install the code
-# - run unit and integration tests
-# - compile our article PDF(s) and force-push them back to the repository
-
-# The PDF compilation hack is by Dan Foreman-Mackey, with modifications by Andy Casey.
-
-# Travis needs to be provided with the environment variables:
-# - GITHUB_USER:    your GitHub username
-# - GITHUB_API_KEY: a personal access token - make sure that it has access to
-#                   'repo' - https://github.com/settings/tokens
-
-# Remember to go to Travis settings and set to only build if .travis.yml is present
+# This Travis configuration file is a modification upon Dan Foreman-Mackey's
+# excellent setup. See http://dfm.io/posts/travis-latex/ for details.
 
 sudo: false
 language: python
 
-python:
-  - 2.7
-  - 3.5
-  - 3.6
+env:
+    global:
+        - TEST_LANG='python'
+          
+matrix:
+    include:
 
-before_install:
-  - wget http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
-  - chmod +x miniconda.sh
-  - ./miniconda.sh -b
-  - export PATH=/home/travis/miniconda2/bin:$PATH
-  #- conda update --yes conda
-  # The next couple lines fix a crash with multiprocessing on Travis and are not
-  # specific to using Miniconda.
-  # (Note: I have commented these out because this repository is not using 
-  #        multiprocessing in testing at the moment and if we can get away
-  #        without using sudo then we can use Travis containers, which are
-  #        way betterrer)
-  #- sudo rm -rf /dev/shm
-  #- sudo ln -s /run/shm /dev/shm
+        # This build will compile the LaTeX source of the paper
+        - os: linux
+          env: TEST_LANG='paper'
 
-install: 
-  - conda install --yes python=$TRAVIS_PYTHON_VERSION numpy scipy nose six coverage scikit-learn 
-  - pip install coveralls
-  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then source .ci/setup-texlive.sh; fi
+        # Linux, Python 2.7
+        - os: linux
+          env: PYTHON_VERSION=2.7 NUMPY_VERSION=1.10
+        - os: linux
+          env: PYTHON_VERSION=2.7 NUMPY_VERSION=1.11
+        - os: linux
+          env: PYTHON_VERSION=2.7 NUMPY_VERSION=1.12
 
-before_script: # configure a headless display to test plot generation
-    - "export DISPLAY=:99.0"
-    - "sh -e /etc/init.d/xvfb start"
-    - sleep 3 # give xvfb some time to start
+        # Linux, Python 3.5
+        - os: linux
+          env: PYTHON_VERSION=3.5 NUMPY_VERSION=1.12
 
-script:
-  - nosetests --with-coverage --cover-package=snob 
-  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then source .ci/travis.sh; fi
-  
-after_success:
-  - coveralls
+        # Linux, Python 3.6
+        - os: linux
+          env: PYTHON_VERSION=3.6 NUMPY_VERSION=1.11
+        - os: linux
+          env: PYTHON_VERSION=3.6 NUMPY_VERSION=1.12
+        - os: linux
+
+        # OSX
+        - os: osx
+          env: PYTHON_VERSION=2.7 NUMPY_VERSION=1.12
+        - os: osx
+          env: PYTHON_VERSION=3.6 NUMPY_VERSION=1.12
+
+install:
+    - source .ci/travis.sh
+
+script: |
+    if [[ $TEST_LANG == paper ]]
+    then
+      source .ci/build-papers.sh
+    elif [[ $TEST_LANG == python ]]
+    then
+      py.test -v --cov snob
+    fi
+
+after_success: |
+    if [[ $TEST_LANG == python ]]
+    then
+      coveralls
+    fi
 
 notifications:
   email:
     recipients:
-      - andrew.casey@monash.edu 
+      - andrew.casey@monash.edu
     on_success: change
     on_failure: change
-
