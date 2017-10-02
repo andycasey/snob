@@ -10,7 +10,7 @@ for folder in "${folders[@]}"
 do
    cd $TRAVIS_BUILD_DIR
    cd "articles/$folder"
-   make
+   tectonic ms.tex --print
 done
 
 

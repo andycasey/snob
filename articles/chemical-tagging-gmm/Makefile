@@ -1,5 +1,7 @@
+# Note that Travis CI uses tectonic, which might be important to know when debugging
+# any errors between local and remote builds.
+#
 LATEX       = openout_any=a pdflatex
-
 all: ms.pdf
 
 vc.tex: ../../.git/logs/HEAD
