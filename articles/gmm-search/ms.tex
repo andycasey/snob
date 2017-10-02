@@ -2,7 +2,7 @@
 %% Copyright 2017 the authors. All rights reserved.
 \documentclass{elsarticle}
 \journal{Journal of Artificial Intelligence}
-\usepackage{bm,url}
+\usepackage{bm,url,amsmath}
 %\usepackage{boldsymbol}
 \usepackage{verbatim} % for \begin{comment}'ing out sections.
 
@@ -24,7 +24,8 @@
 \newcommand{\fourmost}{\acronym{4MOST}}
 \newcommand{\weave}{\acronym{WEAVE}}
 \newcommand{\gaia}{\project{Gaia}}
-
+\newcommand{\Cspace}{$\mathcal{C}$-space }
+\newcommand{\Cspaceno}{$\mathcal{C}$-space}
 % Common terms
 \newcommand{\vect}[1]{\boldsymbol{\mathbf{#1}}}
 
@@ -59,7 +60,22 @@
 	\begin{frontmatter}
 		\title{A search method for Gaussian mixtures using MML}
 		
-		%\author{Aleti, Casey, Dowe, Lattanzio}
+%% Group authors per affiliation:
+\author{Elsevier\fnref{myfootnote}}
+\address{Radarweg 29, Amsterdam}
+\fntext[myfootnote]{Since 1880.}
+
+%% or include affiliations in footnotes:
+\author[mymainaddress,mysecondaryaddress]{Elsevier Inc}
+\ead[url]{www.elsevier.com}
+
+\author[mysecondaryaddress]{Global Customer Service\corref{mycorrespondingauthor}}
+\cortext[mycorrespondingauthor]{Corresponding author}
+\ead{support@elsevier.com}
+
+\address[mymainaddress]{1600 John F Kennedy Boulevard, Philadelphia}
+\address[mysecondaryaddress]{360 Park Avenue South, New York}
+
 		
 		\begin{abstract}
 			
@@ -74,7 +90,160 @@
 \label{sec:introduction}
 
 \section{MML}
-\
+% \section{Minimum Message Length (MML)}
+A complex model is not an optimal one, unless its complexity is
+justifiable by the added explanatory power. 
+There is an established connection between simplicity and truth, as beautifully 
+elucidated by the Occam's Razor principle. MML is a statistical technique that formalizes and quantifies this principle.
+
+The basic idea is to consider the transmission of a set of data and a model that describes it. 
+Clearly one can make increasingly complex models to obtain better fits -- think of epicycles in the solar system. Suppose we try to best represent N data points. 
+Traditional curve fitting methods 
+would give a polynomial of degree N-1, which is perhaps the most precise, 
+but it is also 
+the most complex, and the one that most models the noise, 
+by spuriously {\it over-fitting non-existing patterns.\/}
+Over-fitting can result in a model that may be far from the truth.
+MML will only consider a more complex model if the encoding of the complex model and the data is more efficient 
+than the less complex model, i.e. it finds the minimum message length needed to transmit the data and the model.   It is this \textit{true} model that MML aims to find.
+
+It differs from PCA in that it does find groups (or {\it classes\/} in the notation of MML). For each class  it can provide a ``latent factor'' which is akin to the first PC in a PCA study. Let us be a little more quantitative.
+
+The MML principle states that the best explanation of the data is the one that leads to the shortest message~\cite{Wallace05}, 
+where a \textit{message} takes into account both the complexity of the model, and its explanatory power. 
+In essence, MML infers the most concise way of encoding the model, $\theta$, and the data, $x$, given the model, $x|\theta$. 
+A complex model will produce a longer first part of the message than a simple model, 
+since more quantities must be stated. On the other hand, the length of the second part of the 
+message decreases with more accurate and complex models, since less data has to be described fully.
+The \textit{message} must encode two parts: the model, and the data. 
+The encoding of the message is based on Shannon's information theory. According to Shannon, the information we gain from an event $e$ is $h(e) = - \log_2 p(e)$, where $p(e)$ is the probability of that event. The information content is biggest for the improbable outcomes, and smallest for outcomes that we are almost certain about. An outcome that has a probability close to one has close to zero information content, since we don't learn anything new from it, whereas the rarer events have much higher information content. 
+
+Consider the simplified illustrative example of rolling an unbiased four-sided die (d4), 
+where each of the four outcomes %$(1,2,3,4,5,6)$
+has equal probability $p_i=0.25$. The information content in each datum is $- \log_2 0.25 = 2$. 
+In total $\sum_{i=1}^4-\log_2 (p_i) = 2 + 2 + 2 + 2 = 8$ bits are required to describe the four outcomes. 
+The model description could be $\{00,01,10,11\}$:~this is the first part of the message. %We might choose $000$ to represent 1, $001$ to represent 2, $\ldots$  and $100$ to represent 6. Here, we need no delimiter as each datum takes 3 bits.
+
+Now assume that the die is biased, with probabilities
+$p(1)=0.5, p(2)=0.25, p(3)=0.125$, and $p(4)=0.125$. 
+In this case, the number of bits required to represent each alternative is different. One bit is required for 1, since $-\log_2 0.5 = 1$, and the codeword could be the single binary value 1. Similarly, 2 bits are required for the outcome 2, which can be represented with codeword $01$. It follows that possible codewords for the remaining alternatives, all using the bit ``1'' to indicate the end of each datum, are $001$ for 3, $0001$ for 4, $00001$ for 5, and $000001$ for six. 
+The length of the model required to describe 
+the outcomes of the biased die would be 
+$\sum_{i=1}^4-\log_2 (p_i) = 1 + 2 + 3 + 3 = 9$ bits, and the codewords 
+would be $\{0,10,110,111\}$.
+The second description is 1 bit longer than the first, 
+but, since the most frequent events have a shorter codeword,
+the second part of the message (the data given the model) is shorter. The overall message length of the second description is shorter than the first, when applied to the biased die. 
+
+To illustrate this point let's encode 1000 outcomes of a biased die, 
+where 500 outcomes are 1, 250 are 2, 125 are 3, and 125 are 4.
+With the first model each outcome is encoded with two bits,
+so the length of the second part of the message is $1000\times 2=2000$.
+The total message length is the sum of the model length 
+and the length of the data given the model, or 2008 bits. 
+But if we encode the data with the second model,
+the length of the data given the model is 
+$ 500+(250\times2)+(125\times3)+(125\times3)=1750$.
+The total length is $1750+9=1759$. Thus the second model, 
+although it is more complex (takes more bits to describe), creates a shorter encoded message, 
+and hence is a better description than the shorter model.
+
+Formally, the length of the first part of the message is
+$- \log_2h(\theta)$, and that
+of the second part is
+$- \log_2f(x|\theta)$,
+where $h(\theta)$ is the prior probability of model $\theta$,
+and $f(x|\theta)$ is the likelihood of data $x$ assuming model $\theta$.
+The total message length is the sum of the two parts,
+i.e. $- \log_2h(\theta) - \log_2f(x|\theta)$,
+which is minimised precisely when $h(\theta)f(x|\theta)$ is maximised. The multiplication of the prior and the likelihood is proportional to the posterior {\em probability} $g(\theta|x)$. Thus the MML estimate $h(\theta)f(x|\theta)$ is equal to the posterior mode.
+This is similar in spirit to the (Bayesian) Maximum A Posteriori (MAP) posterior mode, but with the
+benefit of statistical invariance under re-parameterisation \cite{Dowe07GO}.
+
+
+\section{MML for clustering with a single latent factor model}
+MML is used to identify groups (also known as ``classes'') of stars with the  same composition, and determine the number of independent dimensions in \Cspace. It is important to note that MML can answer these two questions simultaneously. Without MML one would use some clustering 
+technique to find the groups of similar stars, and then use a dimensionality reduction method  like PCA to find the underlying patterns of nucleosynthesis within these groups. MML performs these two tasks simultaneously. The latent factors within MML are encoded into the optimisation when finding the groups. As a result, MML is able to assess whether adding an extra group
+hinders the fit of the latent factor model. In current (non-MML) methods these two tasks are not performed jointly, which may lead to groups that are a perfect fit, but with a biased latent factor model. MML will be including the underlying nuclear physics when finding the groups within the data
+(of course, we can instruct it not to do this if we prefer). This is a significant advantage over other techniques that have been investigated so far.
+
+
+%One very substantial difference between MML's latent factors and PCA is the following: if we increase the noise in one of the variables, the relevant PC will move in the direction of the noise, ultimately with increasing eigenvalue. But for single latent factor analysis, the latent factor won't change, rather the noise %($\sigma$) 
+%in the relevant variable will increase. This is a very desirable characteristic, helping to isolate the underlying physics from random effects, and is an indication of the robustness of latent factors to errors in measurements. 
+
+For each group determined by MML, the latent factor is a vector that best encapsulates the location 
+and distribution of this group in \Cspaceno.
+Mixture modelling enables the partitioning of the data into overlapping groups. 
+For each group, a single latent factor model is created. 
+In MML we  model this by constructing a two-part message, with the first part describing the mixture 
+model (or hypothesis, $\theta$) and the second part representing the encoded data ($x$) given the hypothesis. 
+The assumed single latent factor model is $x_{n k} = \mu_k + \nu_n a_k + \sigma_k r_{n k}$, where $\mu_k$ is the 
+estimated mean for each attribute or dimension $k$ ($k=1, \ldots, K$);~$\vec{a} = (a_1,  ...,  a_K)$ is the factor load vector, giving the 
+contribution of each variable to the underlying common factor, $\vec{\nu} = (\nu_1, ..., \nu_N)$ is the 
+factor score vector, representing how much each data item in turn has of the factor;
+%- by convention, factor scores are normalised to be of length order 1; 
+$\sigma_k$ is the standard deviation in 
+attribute $k$, and the variates $r_{n k}$ are independently and identically distributed  
+in $N(0, 1)$. In essence, the model regards each observation $x_{n k}$ as determined by the 
+mean $\mu_k$, depending on an unobserved variable $\nu_n$ and related to a specific 
+variability with standard deviation $\sigma_k$. The MML \textit{message} contains the following components: 
+
+%In the stuff below I have removed much of the maths. It is commented out rather than deleted so we can add it back if we want :-)
+
+
+\begin{itemize}
+\item[\textbf{1a)}] A statement of the number of groups, or classes, $C$. Each class is assumed to have the same prior probability, equal to $2^{-K}$. The length of this part is equal to the negative logarithm of the prior, i.e. $K$. 
+\item[\textbf{1b)}] The relative abundances (or mixing proportions) of the amount(s) of data in each group. 
+		The length of this 
+		%part is equal to the negative log likelihood of the multiplication of the prior probabilities 
+		part is equal (within a small constant) to the negative log of the multiplication of the prior probabilities
+		of each group ($h(\vec{p})$) divided by the square root of the Fisher information ($\sqrt{F(\vec{p_k})}$). 
+		The Fisher information matrix contains the expected second-order partial derivatives of the log-likelihood function, and quantifies how sharply the likelihood function peaks, and as a result how precisely the parameters should be stated.
+	
+	In the case of uniform prior probabilities $h(\vec{p}) = (K-1)!$, and the Fisher information $F(\vec{p}) = N^{K-1} / (\prod_{k=1}^{K} p_k)$. It follows that the length of this part is equal to $- \log( h(\vec{p}) \times (1 / \sqrt{{\kappa_K}^K F(\vec{p})}) ) = - \log((K-1)!) + (K/2) \log(\kappa_K) + ((K-1)/2) \log(N) - (1/2) \sum_{k=1}^{K} \log(p_k)$, where $\kappa_K$ is a lattice constant (varying between $1/12$ and $1/(2 \pi e)$).
+	
+\item[\textbf{1c)}] The distributional parameters $\mu_k$ and $\sigma_k$ 
+		(one for each attribute or dimension  $k$) and the factor
+		load (and score) vectors for each group, again rounded off as above using the Fisher information.
+	
+	The explanation length of this part is $(N-1)\sum_k log \sigma_k + \frac{1}{2}[K log (N \sum_n \nu_n^2 - (\sum_n\nu_n)^2) + (N+K-1) log(1+\sum_k(a_k/\sigma_k)^2)] + \frac{1}{2} [\sum_n \nu_n^2 + \sum_n \sum_k (x_{nk} \mu_k - v_na_k)^2/\sigma_k^2]$. This part measures the information required to encode the latent factor model for each class. The more classes, the longer the message length is.
+	
+\item[\textbf{2)}] The data given the model, whose cost is the well-known statistical log-likelihood. 
+	In the case of a normal distribution, this is equal to 
+	
+	$$-\log p_k(x) (1/(\sigma_k \sqrt(2\pi) e^{-\frac{(x-\mu_k)^2}{2\sigma_k^2}}).$$
+\end{itemize}
+
+\vspace{-1mm}
+
+Parts 1a and 1b encode the parameters from the clustering process, part 1c  
+estimates the complexity of the latent factor model, and part 2 encodes the likelihood 
+%(the data given the hypothesis), 
+which represents the goodness-of-fit. 
+The estimation of the multinomial parameters from part 1b and the distributional parameters 
+from part 1c is done by quantifying the trade-off between stating the parameters imprecisely, 
+so as to have higher prior probability in the relevant uncertainty region and keep the first 
+part of the message short, and the goodness of fit to the data, which is typically better 
+if we state the parameter estimates more precisely. Quantitatively, this is done by 
+minimising the sum of the lengths of the four components (1a, 1b, 1c and 2 above).
+Single latent factor analysis attempts to reduce the data to one dimension. 
+If the factor is very weak,  MML may decide that the cost 
+of describing the factor in part 1c is greater than the saving that would occur 
+in part 2. In such a case MML will 
+posit that there is no factor; i.e. including this factor would be over-fitting 
+the data, taking us away from the optimum model.
+
+
+Similarly, if MML finds that 
+the data for a specific element do not affect the selection %add anything to the ability to 
+of groups, then it will {\it ignore that element.\/} This could tell us something 
+important - such as that there is a large random component for that element 
+or that there are significant observational 
+errors ruining the usefulness of that measurement. 
+These are significant insights into the data that are, importantly, quantified by the MML method.
+
+
+\section{Message Length}
 There are $N$ data points each with $D$ dimensions, which are to be modelled
 by $K$ mixture of $D$-dimensional gaussian distributions, each with a relative
 weighting $\weight_k$ such that $\sum_{k=1}^{K}\weight_k = 1$. 
@@ -145,8 +314,8 @@ Q^{(old)} - Q^{(new)} &=& -\frac{1}{2}D(D+3) + 2K  - 1
 \noindent{}gives us,
 
 \begin{eqnarray}
-  \log{Q^{(new)}} - \log{Q^{(old)}} &=& \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} - \log{\left(\frac{1}{2}DK(D + 3)\right)} \nonumber \\
-                                    &&+ \log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} - \log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)} \quad .\\
+  \log{Q^{(new)}} &- \log{Q^{(old)}} = \log{\left(\frac{1}{2}D(K+1)(D + 3)\right)} - \log{\left(\frac{1}{2}DK(D + 3)\right)} \nonumber \\
+                                    &+ \log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} - \log{\left(1 + \frac{K - 1}{\frac{1}{2}DK(D + 3)}\right)}.
 \end{eqnarray}
 The second row of terms can be ignored because they are very small (typically less than 1 bit). This is because as $K \rightarrow \infinity$, $2K/D(K+1)(D+3) \rightarrow 1$, thus $\log{\left(1 + \frac{K}{\frac{1}{2}D(K+1)(D + 3)}\right)} \rightarrow \log{2}$. Similarly as $D \rightarrow \infinity$, $2K/D(K+1)(D+3) \rightarrow 0$.
 
@@ -163,7 +332,7 @@ As $K \rightarrow \infinity$ then $2(K-1)/DK(D+3) \rightarrow 1$ and as $D \righ
 \noindent{}Substituting Eqs. \ref{eq:19} and \ref{eq:14} into \ref{eq:13} yields:
 
 \begin{eqnarray}
-\Delta{}I_{K+1} - I_K &\approx& \log{2} % \Delta{}I_k
+\Delta{}I_{K+1} &-& I_K \approx \log{2} % \Delta{}I_k
     + \frac{1}{2}\log{N} - \log{K} - \frac{1}{2}\left(\sum_{k=1}^{K+1}\log{w_k^{(new)}} - \sum_{k=1}^{K}\log{w_k^{(old)}}\right) \nonumber \\ % \Delta{}I_w
 && + \mathcal{L}^{(new)} - \mathcal{L}^{(old)} \nonumber \\ % likelihood
 && + \frac{1}{2}\left[\frac{D(D+3)}{2}\left(\sum_{k=1}^{K+1}\log{Nw_k^{(new)} - \sum_{k=1}^{K+1}\log{Nw_k^{(old)}}} \right) - \left(D+2\right)\left(\sum_{k=1}^{K+1}\log{|\veccov_k|^{(new)}} - \sum_{k=1}^{K+1}\log{|\veccov_k|^{(old)}}\right)\right] \nonumber \\
@@ -172,7 +341,7 @@ As $K \rightarrow \infinity$ then $2(K-1)/DK(D+3) \rightarrow 1$ and as $D \righ
 
 \section{The k-means++ algorithm}
 
-The k-means++ algorithm extends the k-means method with an efficient way of choosing centres. Lets $D(x)$ denote the shortest distance from a data point $x$ to the closest centre that has already been selected. The k-means++ performs the following steps:
+The k-means++ algorithm extends the k-means method with an efficient way of choosing centres. Let $D(x)$ denote the shortest distance from a data point $x$ to the closest centre that has already been selected. The k-means++ has the following steps:
 
 \begin{enumerate}
 	\item Selects a centre $c_1$ uniformly at random from the $N$ data points.
@@ -184,88 +353,65 @@ The k-means++ algorithm extends the k-means method with an efficient way of choo
 k-means++ is O(log k)-Competitive.
 
 \section{The Heuristic}
+% \section{The Heuristic - Method of Moments}
 
 Re the case of two (or more) classes with the same mean:
 In 2D, a simple case in point is two classes with the same mean
-such that $sigma_{1, x} = sigma_{2, y} >> sigma_{2, x} = sigma_{1, y}$.
+such that $\sigma_{1, x} = \sigma_{2, y} >> \sigma_{2, x} = \sigma_{1, y}$.
 Andy said that this and higher dimensional stuff can be picked up
 by dropping to 1 dimension along the eigenvector of largest eigenvalue.
-I like that.
-I wonder also about the merits of dropping to 2 dimensions (if we have
-at least 2 attributes), being the eigenvectors of the two largest eigenvalues.
-If it could be done quickly, one could transform to a circle, and then
-some test (e.g., Kolmogorov-Smirnov test) for whether data is uniform
-in radial distribution [0, 2 $\pi$).  If not uniform, then perhaps grounds for
-splitting.
 
-One could possibly check whether uniform radially directly from the
-original 2D projection without having to project it to a circle (i.e., it
-might be pretty easy to work out what the angle of each point would
-be post-transformation without having to do the transformation).  The
-2D projection is 1D in the sense that we only care about the angle
-around the circle.  And, again, Kolmogorov-Smirnov is a popular test
-for uniformity.
+
+I wonder also about the merits of dropping to 2 dimensions (if we have at least 2 attributes), being the eigenvectors of the two largest eigenvalues. 
+
+One could possibly check whether uniform radially directly from the original 2D projection without having to project it to a circle (i.e., it might be pretty easy to work out what the angle of each point would be post-transformation without having to do the transformation).  The 2D projection is 1D in the sense that we only care about the angle around the circle.  And then some test (e.g., Kolmogorov-Smirnov test) for whether data is uniform in radial distribution.  If not uniform, then perhaps grounds for splitting.
 
 Re looking at things in 1 dimension (not 2D followed by 1D [0, 2 pi) angle
 as above but rather projecting on eigenvector of largest eigenvalue), we
 discussed moments - e.g., \url{https://en.wikipedia.org/wiki/Normal_distribution} .
-So, 2nd, 4th, 6th and 8th moments of a true Gaussian are 1, 3, 15, 105.
+%So, 2nd, 4th, 6th and 8th moments of a true Gaussian are 1, 3, 15, 105.
 
-The heuristic I'm going to propose is independent (i.e., I haven't heard
-of it before), but it seems pretty easy, it mightn't be original, and I can
-conceive that Andy might already be using it.
 
 Let's suppose we have a 1D component.  We'll shift it (without loss of
 generality, w.l.o.g.) so that its mean is 0 and we'll shrink or expand it
 (again, w.l.o.g.) so that its s.d. ($\sigma$) is 1 (and variance v is 1).
 
 We consider now splitting it into K components with mean 0,
-mixing weights (or proportions) $p_1, ..., p_i, ..., p_K$ and s.d.s $\sigma_i$ (and variances $v_i = (\sigma_i)^2$).
-Let's set $K = 2, so p_2 = 1 - p_1$.
+mixing weights (or proportions) $w_1, ..., w_i, ..., w_K$ and s.d.s $\sigma_i$ (and variances $v_i = (\sigma_i)^2$).
+Let's set $K = 2$, so $w_2 = 1 - w_1$.
 
-Suppose the moments of our current component are 1, $3 \alpha_4, 15 \alpha_6 and 105 \alpha_8, ... $.
+Suppose the moments of our current component are 1, $3 \alpha_4, 15 \alpha_6$ and $105 \alpha_8, ... $.
 We get some equations - if we have the correct number of equations,
 they're simultaneous equations.
 
 If we get too many equations (by using too many moments), then it
 becomes something of a fitting or regression problem to choose
-$p_1, ..., p_i, ..., p_K$ and s.d.s $\sigma_i$, variances $v_i = (\sigma_i)^2$.
+$w_1, ..., w_i, ..., w_K$ and s.d.s $\sigma_i$, variances $v_i = (\sigma_i)^2$.
 
 Our simultaneous equations are:
-$p_1 v_1       + (1 - p_1) v_2       =    1$
-$p_1 (v_1)^2  + (1 - p_1) (v_2)^2  =    3 \alpha_4$
-$p_1 (v_1)^3  + (1 - p_1) (v_2)^3  =   15 \alpha_6$
-$p_1 (v_1)^4  + (1 - p_1) (v_2)^4  =  105 \alpha_8$
-(and possibly etc., as possibly needed).
 
-These might be messy to solve on the fly  but
-one could pre-process by solving many of these beforehand
-(actually, approximately solving these beforehand, as it's only
-a heuristic, anyway) at the very start of the program while
-loading in the data.
+\begin{align*}
+w_1 v_1       + (1 - w_1) v_2       &=    1\\
+w_1 (v_1)^2  + (1 - w_1) (v_2)^2  &=    3 \alpha_4\\
+w_1 (v_1)^3  + (1 - w_1) (v_2)^3  &=   15 \alpha_6\\
+w_1 (v_1)^4  + (1 - w_1) (v_2)^4  &=  105 \alpha_8
+\end{align*}
 
-(I remember that Chris Wallace got me to do this a similar pre-processing step when dealing with von Mises angular/circular data.)
-So, for $1000 x 1000 = 10^6$ different values of $\alpha_4 and \alpha_6$
-or for $100 x 100 x 100 = 10^6$ different values of $\alpha_4, \alpha_6 and \alpha_8$
-one could pre-compute {\em approximate} (rough heuristic) 1,000,000ish or so `solutions' to the above simultaneous equations.
+These might be messy to solve on the fly  but one could pre-process by solving many of these beforehand (actually, approximately solving these beforehand, as it's only
+a heuristic, anyway) at the very start of the program while loading in the data.
+
+So, for $1000 \times 1000 = 10^6$ different values of $\alpha_4$ and $\alpha_6$
+or for $100 \times 100 \times 100 = 10^6$ different values of $\alpha_4, \alpha_6$ and $\alpha_8$
+one could pre-compute {\em approximate} 1,000,000ish `solutions' to the above simultaneous equations.
 
 Then, when running the program with real actual values of $\alpha_4$ and $\alpha_6$ (and $\alpha_8$),
 one could just grab something from nearby in this pre-computed look-up table
-as putative values for $p_1, v_1, v_2$ (and etc., if need be).
+as putative values for $w_1, v_1, v_2$ (and etc., if need be).
 
 And, of course, one could change K from 2 to something bigger.
 
 There should still be some use of randomness in the search.
-
-\begin{thebibliography}{}
-
-% Note: I include the DOI as a comment on the same line after every \bibitem
-%       entry. I do this in case I ever need to extract full bibstems for the
-%       bibliography, which can be done using this curl command and the DOI:
-
-%       curl -LH "Accept: application/x-bibtex" http://dx.doi.org/10.5555/12345678 
-
-%       If no DOI is available then I list the ADS identifier.
-\end{thebibliography}
+\bibliographystyle{elsarticle-num}
+\bibliography{mmlbibliography}
 
 \end{document}

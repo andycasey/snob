@@ -35,9 +35,10 @@ K_clusters_total = len(set(catalog["cluster_id"]))
 
 
 
-mml_mod = MMLMixtureModel(num_components=2)
+mml_mod = MMLMixtureModel(num_components=2, initialization_method="random")
 mml_mod.fit(X)
 
+raise a
 
 ml_mod = MLMixtureModel(num_components=2)
 ml_mod.fit(X)

@@ -39,8 +39,8 @@ class BaseMixtureModel(object):
         options are: ``kmeans``, and ``random`` (default: ``kmeans``).
     """
 
-    parameter_names = ("factor_loads", "factor_scores", "specific_variances",
-        "means", "weights")
+    parameter_names = ("factor_loads", "cluster_factor_scores",
+        "specific_variances", "means", "weights")
 
     def __init__(self, num_components, threshold=1e-5, max_em_iterations=10000,
         initialization_method="kmeans++", **kwargs):
@@ -106,6 +106,14 @@ class BaseMixtureModel(object):
 
 
     @property
+    def cluster_factor_scores(self):
+        r"""
+        Return the mean factor scores for each :math:`k`-th cluster,
+        :math:`v_k`.
+        """
+        return self._cluster_factor_scores
+
+    @property
     def specific_variances(self):
         r"""
         Return the specific variances, :math:`\sigma_k^2`.
@@ -122,6 +130,8 @@ class BaseMixtureModel(object):
             if parameter_name in self.parameter_names:
                 value = value if value is None else np.atleast_2d(value)
                 setattr(self, "_{}".format(parameter_name), value)
+                logger.debug("set_parameters: {} {}".format(parameter_name, value))
+
             else:
                 raise ValueError("unknown parameter '{}'".format(parameter_name))
 
@@ -152,7 +162,9 @@ class BaseMixtureModel(object):
 
         # Calculate the inital expectation.
         responsibility, log_likelihood = self._expectation(data) 
+
         results = [log_likelihood.sum()]
+        logger.debug("fit: initial ll: {}".format(results[0]))
 
         for iteration in range(self.max_em_iterations):
 
@@ -163,18 +175,22 @@ class BaseMixtureModel(object):
 
             # Compute the e-step of cycle 2
             responsibility, _ = self._expectation(data)
+            logger.debug("fit intermediate ll: {}".format(_.sum()))
+
 
             # Do the M-step of cycle 2
             self._aecm_step_2(data, responsibility)
 
             # Re-compute the expectation,
-            responsibility, log_likelihood = self._expectation(data)
+            responsibility, log_likelihood_ = self._expectation(data)
+            assert log_likelihood_.sum() > log_likelihood.sum()
+            log_likelihood = log_likelihood_
             results.append(log_likelihood.sum())
 
             # Check for convergence.
             change = np.abs((results[-1] - results[-2])/results[-2])
             
-            logger.debug("E-M step {}: {} {}".format(
+            logger.debug("fit: {} {} {}".format(
                 iteration, results[-1], change))
             
             if change <= self.threshold \
@@ -221,6 +237,7 @@ class BaseMixtureModel(object):
             where :math:`N` is the number of observations, and :math:`D` is
             the number of dimensions per observation.
         """
+
         return self._estimate_log_prob(data) + self._estimate_log_weights()
 
 
@@ -242,22 +259,38 @@ class BaseMixtureModel(object):
             the number of dimensions per observation.
         """
         return _estimate_log_latent_factor_prob(
-            data, self.factor_loads, self.factor_scores, 
+            data, self.factor_loads, self.cluster_factor_scores, 
             self.specific_variances, self.means)
 
 
 
-def _estimate_log_latent_factor_prob(data, factor_loads, factor_scores,
-    specific_variances, means):
+def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
+    specific_variances, mean):
 
-    N, K = data.shape
-    M, K = means.shape
+    N, D = data.shape
+    L, K = cluster_factor_scores.shape
 
-    specific_inverse_variances = 1.0/specific_variances
-    log_prob = np.empty((N, M))
-    for m, mu in enumerate(means):
-        squared_diff = (data - mu - np.dot(factor_scores, factor_loads))**2
-        log_prob[:, m] = np.sum(squared_diff * specific_variances, axis=1)
+    # As usual:
+    # N = number of data points
+    # D = dimensions of data
+    # L = number of latent factors
+    # K = number of clusters.
+
+    #import matplotlib.pyplot as plt
+    #fig, ax = plt.subplots()
+    #ax.scatter(data.T[0], data.T[1], facecolor="#666666", zorder=-1)
+    #colors = "br"
+
+    # TODO consider multiplication of inv_specific_variances instead
+
+    log_prob = np.empty((N, K))
+    for k, factor_scores in enumerate(cluster_factor_scores.T):
+        squared_diff = (data - mean - np.dot(factor_scores, factor_loads))**2
+        log_prob[:, k] = np.sum(squared_diff / specific_variances, axis=1)
+
+        #foo = mean + np.dot(factor_scores, factor_loads)
+        #ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k], alpha=0.5)
+
 
     return - 0.5 * K * N * np.log(2 * np.pi) \
            + N * np.sum(np.log(specific_variances)) \

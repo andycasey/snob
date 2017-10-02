@@ -23,7 +23,7 @@ import pickle
 import numpy as np
 from astropy.table import Table
 
-random_seed = 1
+random_seed = 123
 np.random.seed(random_seed)
 
 oc_mean_properties = Table.read("Chen-et-al-2003-AJ-125-1397-table1.fits")
@@ -33,13 +33,14 @@ PREFIX = "toy"
 
 # Adjustable parameters #
 # --------------------- #
-elements_measured = ("Fe", "Ti", "Ca",)
+elements_measured = ("Fe", "Ti", )
 
 def draw_number_of_stars_in_cluster(mean_cluster_abundance=None):
     return np.random.randint(50, 100)
 
 means = np.mean(oc_mean_properties["__Fe_H_"]) \
       + np.random.normal(0, 0.1, size=len(elements_measured))
+means = np.zeros(2)
 
 specific_sigmas = np.clip(
     np.abs(np.random.normal(0, 0.01, size=len(elements_measured))),
@@ -47,7 +48,7 @@ specific_sigmas = np.clip(
 
 cluster_dispersion = 0.01
 
-magnitude_of_factor_load = 0.5
+magnitude_of_factor_load = 0.25
 # --------------------- #
 
 
@@ -73,7 +74,9 @@ for i, open_cluster in enumerate(open_clusters):
     mean_cluster_abundance = open_cluster["__Fe_H_"]
 
     # How many stars will we draw from this cluster.
-    N_cluster = draw_number_of_stars_in_cluster(mean_cluster_abundance)
+    #N_cluster = draw_number_of_stars_in_cluster(mean_cluster_abundance)
+    N_cluster = {0: 30, 1: 60}[i]
+    
 
     # Determine the cluster fingerprint.
     # factor_scores (v_n)
