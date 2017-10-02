@@ -23,7 +23,7 @@ import pickle
 import numpy as np
 from astropy.table import Table
 
-random_seed = 100
+random_seed = 123
 np.random.seed(random_seed)
 
 oc_mean_properties = Table.read("Chen-et-al-2003-AJ-125-1397-table1.fits")
@@ -40,6 +40,7 @@ def draw_number_of_stars_in_cluster(mean_cluster_abundance=None):
 
 means = np.mean(oc_mean_properties["__Fe_H_"]) \
       + np.random.normal(0, 0.1, size=len(elements_measured))
+means = np.zeros(2)
 
 specific_sigmas = np.clip(
     np.abs(np.random.normal(0, 0.01, size=len(elements_measured))),
@@ -47,7 +48,7 @@ specific_sigmas = np.clip(
 
 cluster_dispersion = 0.01
 
-magnitude_of_factor_load = 1
+magnitude_of_factor_load = 0.25
 # --------------------- #
 
 

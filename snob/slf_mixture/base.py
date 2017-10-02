@@ -164,6 +164,7 @@ class BaseMixtureModel(object):
         responsibility, log_likelihood = self._expectation(data) 
 
         results = [log_likelihood.sum()]
+        logger.debug("fit: initial ll: {}".format(results[0]))
 
         for iteration in range(self.max_em_iterations):
 
@@ -174,15 +175,16 @@ class BaseMixtureModel(object):
 
             # Compute the e-step of cycle 2
             responsibility, _ = self._expectation(data)
-            assert _.sum() > log_likelihood.sum()
+            logger.debug("fit intermediate ll: {}".format(_.sum()))
+
 
             # Do the M-step of cycle 2
             self._aecm_step_2(data, responsibility)
 
             # Re-compute the expectation,
-            responsibility, log_likelihood = self._expectation(data)
-            #assert log_likelihood_.sum() > log_likelihood.sum()
-            #log_likelihood = log_likelihood_
+            responsibility, log_likelihood_ = self._expectation(data)
+            assert log_likelihood_.sum() > log_likelihood.sum()
+            log_likelihood = log_likelihood_
             results.append(log_likelihood.sum())
 
             # Check for convergence.
@@ -218,8 +220,6 @@ class BaseMixtureModel(object):
         with np.errstate(under="ignore"):
             # Ignore underflow errors.
             log_resp = weighted_log_prob - log_likelihood[:, np.newaxis]
-
-        raise a
 
         responsibility = np.exp(log_resp).T
         
@@ -276,12 +276,21 @@ def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
     # L = number of latent factors
     # K = number of clusters.
 
+    #import matplotlib.pyplot as plt
+    #fig, ax = plt.subplots()
+    #ax.scatter(data.T[0], data.T[1], facecolor="#666666", zorder=-1)
+    #colors = "br"
+
+    # TODO consider multiplication of inv_specific_variances instead
+
     log_prob = np.empty((N, K))
     for k, factor_scores in enumerate(cluster_factor_scores.T):
         squared_diff = (data - mean - np.dot(factor_scores, factor_loads))**2
         log_prob[:, k] = np.sum(squared_diff / specific_variances, axis=1)
 
-    raise a
+        #foo = mean + np.dot(factor_scores, factor_loads)
+        #ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k], alpha=0.5)
+
 
     return - 0.5 * K * N * np.log(2 * np.pi) \
            + N * np.sum(np.log(specific_variances)) \

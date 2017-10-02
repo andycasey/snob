@@ -219,7 +219,7 @@ class GaussianMixture(object):
             If there is a shape mis-match between the input arrays.
         """
 
-        if None in (means, covariances, weights):
+        if means is None or covariances is None or weights is None:
             for parameter_name in self.parameter_names:
                 setattr(self, "_{}".format(parameter_name), None)
                 return False
@@ -264,6 +264,7 @@ class GaussianMixture(object):
         # Only initialize if we don't have parameters already.
         self._soft_initialize(y, **kwargs)
         self.converged = False
+
         prev_log_prob_norm = -np.inf
 
         for iteration in range(self.max_iter):
@@ -271,6 +272,10 @@ class GaussianMixture(object):
             # Expectation.
             log_prob_norm, log_responsibility = self._expectation(y)
 
+
+            if iteration > 0:
+                raise a
+                
             # Maximization.
             self._maximization(y, np.exp(log_responsibility))
 
@@ -318,7 +323,6 @@ class GaussianMixture(object):
             # Ignore underflow errors.
             log_resp = weighted_log_prob - log_prob_norm[:, np.newaxis]
 
-        raise a
         return (log_prob_norm, log_resp)
 
 

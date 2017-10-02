@@ -37,32 +37,22 @@ class MMLMixtureModel(BaseMixtureModel):
         # single mean for the entire sample, not the cluster means!
         # TODO REVISIT TERMINOLOGY
         means = np.mean(data, axis=0)
-        means = np.array([-0.25640511, -0.04716052])
-        logger.warn("DANGER WILL ROBINSON")
+        
         w = data - means
 
-        U, S, V = np.linalg.svd(np.corrcoef(w.T))
+        # Set the initial factor scores by their location along the principal
+        # eigenvetor, scaled by the square root
+        U, S, V = np.linalg.svd(w.T)
+        factor_scores = (V[0] * S[0]**0.5).reshape((N, -1))
+        factor_loads = np.mean(w/factor_scores, axis=0).reshape((-1, D))
+        specific_variances = np.var(
+            w - np.dot(factor_scores, factor_loads), axis=0)
 
-        # Set the initial values for b as the principal eigenvector, scaled by
-        # the square-root of the principal eigenvalue
-        b = V[0] * S[0]**0.5
-
-        # b = factor_load/np.sqrt(specific_variances)
-        b_sq = np.sum(b**2)
-        factor_scores = (np.dot(data, b.T) \
-                      * (1 - D/(N - 1) * b_sq)/(1 + b_sq)).reshape((-1, 1))
-
-        specific_variances = np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1))
-        factor_loads = (np.sqrt(specific_variances) * b).reshape((1, -1))
-
-        #y_nlf = data - np.dot(factor_scores, factor_loads)
-
-        # We want to do the clustering on the factor scores.
-        
+        # Do initial clustering on the factor scores.
         responsibility = np.zeros((N, self.num_components))
-            
+           
         if self.initialization_method == "kmeans++":
-            # Assign cluster memberships to the transformed data.
+            # Assign cluster memberships using k-means++.
             kmeans = cluster.KMeans(
                 n_clusters=self.num_components, n_init=1, **kwargs)
             assignments = kmeans.fit(factor_scores).labels_
@@ -81,9 +71,22 @@ class MMLMixtureModel(BaseMixtureModel):
         # TODO: Revisit this whether this should be effective_membership > 1
         cluster_factor_scores = np.dot(factor_scores.T, responsibility) \
                               / effective_membership
-        
-        # TODO: Do we need to pass cluster_factor_scores around, or factor_scores?
-        #       Or responsibility matrix (ew)
+
+        logger.warn("DANGER WILL ROBINSON")
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.scatter(data.T[0], data.T[1], facecolor="#666666")
+
+        bar = means + np.dot(factor_scores, factor_loads)
+        ax.scatter(bar.T[0], bar.T[1], facecolor="g", alpha=0.5)
+
+        colors = "br"
+        for k in range(2):
+            foo = means + np.dot(cluster_factor_scores.T[k], factor_loads)
+
+            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k])
 
         # Set the parameters.
         return self.set_parameters(means=means, weights=weights,
@@ -91,11 +94,12 @@ class MMLMixtureModel(BaseMixtureModel):
             cluster_factor_scores=cluster_factor_scores, 
             specific_variances=specific_variances)
 
+    
 
     def _aecm_step_1(self, data, responsibility):
         r"""
         Perform the first conditional maximization step of the ECM algorithm,
-        where we update the weights and the cluster factor scores.
+        where we update the weights, and the factor loads and scores.
 
         :param data:
             A :math:`N\times{}D` array of the observations :math:`y`,
@@ -107,6 +111,8 @@ class MMLMixtureModel(BaseMixtureModel):
             partially assigned to each :math:`K` component.
         """
 
+        logger.debug("_aecm_step_1")
+
         K, N = responsibility.shape
         N, D = data.shape
 
@@ -114,18 +120,44 @@ class MMLMixtureModel(BaseMixtureModel):
         effective_membership = np.sum(responsibility, axis=1)
         weights = (effective_membership + 0.5)/(N + K/2.0)
 
-        # Update the cluster factor scores.
-        data_ = (data - self.means)/self.factor_loads
-        #factor_scores = np.sum(responsibility.T * data_, axis=1).reshape((-1, 1))
-        
-        denominator = effective_membership.copy()
-        denominator[denominator > 1] = denominator[denominator > 1] - 1
-
-        cluster_factor_scores = np.sum(responsibility * data_.T, axis=1) \
-                              / denominator
-
-        raise a
+        # Get the current factor scores, given the responsibility matrix.
+        #w = (data - self.means)/self.factor_loads
+        #factor_scores = np.sum(responsibility.T * w, axis=1).reshape((N, -1))
             
+        factor_scores = np.dot(responsibility.T, self.cluster_factor_scores.T)
+
+        # Update the factor loads.
+        factor_loads = np.mean(
+            (data - self.means)/factor_scores, axis=0).reshape((-1, D))
+
+        sigmas = np.ones((90, 2)) * self.specific_variances**0.5
+        sigmas = sigmas.flatten()
+
+        def y(x, *factor_loads):
+            factor_loads = np.array(factor_loads).reshape((1, 2))
+            return (self.means + np.dot(factor_scores, factor_loads)).flatten()
+
+        import scipy.optimize as op
+        result = op.curve_fit(y, None, data.flatten(), sigma=sigmas,
+            p0=factor_loads.flatten())
+
+        factor_loads = result[0].reshape((1, 2))
+
+
+        def y2(x, *cluster_factor_scores):
+            factor_scores = np.atleast_2d(cluster_factor_scores)
+            factor_scores = np.sum(responsibility.T * factor_scores, axis=1).reshape((N, -1))
+
+            return (self.means + np.dot(factor_scores, factor_loads)).flatten()
+
+        result2 = op.curve_fit(y2, None, data.flatten(), sigma=sigmas,
+            p0=self.cluster_factor_scores)
+
+
+        # Calculate the cluster factor scores.
+        #cluster_factor_scores = np.dot(responsibility, factor_scores).T \
+        #                      / effective_membership
+
         #means = np.zeros((K, D))
         #for k in range(K):
         #    means[k] = np.sum(responsibility[k] * data.T, axis=1) \
@@ -149,9 +181,29 @@ class MMLMixtureModel(BaseMixtureModel):
         #logger.debug("_aecm_step_1 means {}".format(means))
         #logger.debug("_aecm_step_1 weights {}".format(weights))
 
+        cluster_factor_scores = np.atleast_2d(result2[0])
+        factor_scores = np.sum(responsibility.T * cluster_factor_scores, axis=1).reshape((N, -1))
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.scatter(data.T[0], data.T[1], facecolor="#666666")
+
+        bar = self.means + np.dot(factor_scores, factor_loads)
+        ax.scatter(bar.T[0], bar.T[1], facecolor="g", alpha=0.5)
+
+        colors = "br"
+        for k in range(2):
+            foo = self.means + np.dot(cluster_factor_scores.T[k], factor_loads)
+
+            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k])
+
+        raise a
+
         return self.set_parameters(
             weights=weights,
-            cluster_factor_scores=cluster_factor_scores)
+            factor_loads=factor_loads,
+            cluster_factor_scores=np.atleast_2d(result2[0]))
 
 
     def _aecm_step_2(self, data, responsibility):
@@ -170,12 +222,12 @@ class MMLMixtureModel(BaseMixtureModel):
         """
         
 
-        """
+        '''
         K, N = responsibility.shape
         N, D = data.shape
         
         for k in range(K):
-            residual = data - self.means[k]
+            residual = data - self.means
 
             gamma = (
                   np.dot(self.factor_loads, self.factor_loads.T) \
@@ -193,8 +245,8 @@ class MMLMixtureModel(BaseMixtureModel):
 
             #V = self.weight * np.dot(residual, residual.T) \
             #  / np.sum(self.)
-        """
-
+            raise a
+        '''
 
         M, N = responsibility.shape
         N, K = data.shape
