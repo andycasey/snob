@@ -37,6 +37,8 @@ class MMLMixtureModel(BaseMixtureModel):
         # single mean for the entire sample, not the cluster means!
         # TODO REVISIT TERMINOLOGY
         means = np.mean(data, axis=0)
+        means = np.array([-0.25640511, -0.04716052])
+        logger.warn("DANGER WILL ROBINSON")
         w = data - means
 
         U, S, V = np.linalg.svd(np.corrcoef(w.T))
@@ -75,16 +77,25 @@ class MMLMixtureModel(BaseMixtureModel):
         effective_membership = np.sum(responsibility, axis=0)
         weights = (effective_membership + 0.5)/(N + D/2.0)
 
+        # We need to initialise the factor scores to be of K clusters.
+        # TODO: Revisit this whether this should be effective_membership > 1
+        cluster_factor_scores = np.dot(factor_scores.T, responsibility) \
+                              / effective_membership
+        
+        # TODO: Do we need to pass cluster_factor_scores around, or factor_scores?
+        #       Or responsibility matrix (ew)
+
         # Set the parameters.
         return self.set_parameters(means=means, weights=weights,
-            factor_loads=factor_loads, factor_scores=factor_scores, 
+            factor_loads=factor_loads, 
+            cluster_factor_scores=cluster_factor_scores, 
             specific_variances=specific_variances)
 
 
     def _aecm_step_1(self, data, responsibility):
         r"""
         Perform the first conditional maximization step of the ECM algorithm,
-        where we update the weights and the means.
+        where we update the weights and the cluster factor scores.
 
         :param data:
             A :math:`N\times{}D` array of the observations :math:`y`,
@@ -96,33 +107,57 @@ class MMLMixtureModel(BaseMixtureModel):
             partially assigned to each :math:`K` component.
         """
 
-        # Update the estimate of the latent factor, after subtracting the
-        # means from each cluster.
         K, N = responsibility.shape
         N, D = data.shape
 
+        # Update the weights by minimising the message length.
         effective_membership = np.sum(responsibility, axis=1)
+        weights = (effective_membership + 0.5)/(N + K/2.0)
+
+        # Update the cluster factor scores.
+        data_ = (data - self.means)/self.factor_loads
+        #factor_scores = np.sum(responsibility.T * data_, axis=1).reshape((-1, 1))
+        
         denominator = effective_membership.copy()
         denominator[denominator > 1] = denominator[denominator > 1] - 1
 
-        means = np.zeros((K, D))
-        for k in range(K):
-            means[k] = np.sum(responsibility[k] * data.T, axis=1) \
-                     / denominator[k]
-
-        weights = (effective_membership + 0.5)/(N + K/2.0)
-
-        logger.debug("_aecm_step_1 weights {}".format(weights))
+        cluster_factor_scores = np.sum(responsibility * data_.T, axis=1) \
+                              / denominator
 
         raise a
+            
+        #means = np.zeros((K, D))
+        #for k in range(K):
+        #    means[k] = np.sum(responsibility[k] * data.T, axis=1) \
+        #             / denominator[k]
 
-        return self.set_parameters(weights=weights, means=means)
+        """
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.scatter(self.factor_scores.flatten(), factor_scores.flatten())
+
+        limits = np.array([ax.get_xlim(), ax.get_ylim()])
+        limits = (np.min(limits), np.max(limits))
+
+        ax.plot(limits, limits)
+        ax.set_xlim(limits)
+        ax.set_ylim(limits)
+
+        raise a
+        """
+        
+        #logger.debug("_aecm_step_1 means {}".format(means))
+        #logger.debug("_aecm_step_1 weights {}".format(weights))
+
+        return self.set_parameters(
+            weights=weights,
+            cluster_factor_scores=cluster_factor_scores)
 
 
     def _aecm_step_2(self, data, responsibility):
         r"""
         Perform the second conditional maximization step of the AECM algorithm,
-        where we update the factor loads and factor scores.
+        where we update the factor loads, factor scores and specific variances.
 
         :param data:
             A :math:`N\times{}D` array of the observations :math:`y`,
@@ -165,12 +200,14 @@ class MMLMixtureModel(BaseMixtureModel):
         N, K = data.shape
 
         # Subtract the means, weighted by responsibilities.
-        w_means = np.dot(responsibility.T, self.means)
-        w = data - w_means
+        #w_means = np.dot(responsibility.T, self.means)
+        w = data - self.means
         
         b = (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
 
         for iteration in range(self.max_em_iterations):
+
+            #logger.debug("_aecm_step_2: iteration {}".format(iteration))
 
             # The iteration scheme is from Wallace & Freeman (1992)
             if (N - 1) * np.sum(b**2) <= K:
@@ -195,7 +232,7 @@ class MMLMixtureModel(BaseMixtureModel):
 
             change = np.sum(np.abs(b - new_b))
 
-            logger.debug("_aecm_step_2: {} {} {}".format(iteration, change, b))
+            #logger.debug("_aecm_step_2: {} {} {}".format(iteration, change, b))
 
             if not np.isfinite(change):
                 raise a
@@ -221,10 +258,9 @@ class MMLMixtureModel(BaseMixtureModel):
             b = 0.5 * (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
             raise a
 
-        specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) \
-                    / ((b*b + 1.0) * (N - 1)))
+        specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1)))
         factor_loads = specific_sigmas * b
-        scaled_y = (data - w_means)/specific_sigmas
+        scaled_y = w/specific_sigmas
 
         b_sq = np.sum(b**2)
         factor_scores = np.dot(scaled_y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
@@ -234,9 +270,15 @@ class MMLMixtureModel(BaseMixtureModel):
         factor_scores = factor_scores.reshape((-1, 1))
         specific_variances = specific_variances.reshape((1, -1))
 
+        effective_membership = responsibility.sum(axis=1)
+        # TODO: make this 1-N
+
+        cluster_factor_scores = np.dot(responsibility, factor_scores).T \
+                              / effective_membership
+
         return self.set_parameters(
             factor_loads=factor_loads,
-            factor_scores=factor_scores,
+            cluster_factor_scores=cluster_factor_scores,
             specific_variances=specific_variances)
 
 
