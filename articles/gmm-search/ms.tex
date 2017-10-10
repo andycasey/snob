@@ -4,12 +4,15 @@
 \journal{Journal of Artificial Intelligence}
 \usepackage{bm,url,amsmath}
 %\usepackage{boldsymbol}
+\usepackage{color} % for \todo command
 \usepackage{verbatim} % for \begin{comment}'ing out sections.
 
 % For revision history
 \IfFileExists{vc.tex}{\input{vc.tex}}{
 	\newcommand{\githash}{UNKNOWN}
 	\newcommand{\giturl}{UNKNOWN}}
+
+\newcommand{\todo}[1]{\textcolor{red}{#1}}
 
 % Define commands
 \newcommand{\article}{\emph{Article}}
@@ -42,6 +45,9 @@
 \def\datum{y}
 \def\data{\vect{\datum}}
 \def\likelihood{\mathcal{L}}
+\newcommand{\fisher}[1]{\mathcal{F}\left(#1\right)}
+\newcommand{\detfisher}[1]{\left|\fisher{#1}\right|}
+\newcommand{\prior}[1]{p\left(#1\right)}
 
 % Affiliation(s)
 \newcommand{\moca}{
@@ -244,13 +250,165 @@ These are significant insights into the data that are, importantly, quantified b
 
 
 \section{Message Length}
-There are $N$ data points each with $D$ dimensions, which are to be modelled
-by $K$ mixture of $D$-dimensional gaussian distributions, each with a relative
-weighting $\weight_k$ such that $\sum_{k=1}^{K}\weight_k = 1$. 
+
+
+The MML principle requires that we encode everything required to reconstruct 
+the message, including our prior beliefs on the model parameters. Consider 
+that we have $N$ data points each with $D$ dimensions which are to be 
+modelled by a finite number of Gaussian mixtures. Therefore the message for 
+a finite number of Gaussian mixtures must encode:
+
+\begin{enumerate}
+  \item The number of Gaussian mixtures, $K$.
+  \item The relative weights $\weights$ of the $K - 1$ Gaussian mixtures. Only
+        $K - 1$ weights must be encoded because $\sum_{k=1}^{K}\weight_k = 1$.
+  \item The component parameters $\vecmean$ and $\veccov$ for all $K$ Gaussian
+        mixtures.
+  \item The data, given the model parameters.
+  \item The lattice quantisation constant $\kappa(Q)$ for the number of model
+        parameters $Q$.
+\end{enumerate}
+
+We provide the message length of each component in turn before outlining our
+full objective function. We assume a prior on the number of mixtures $K$ of
+$\prior{K} \propto 2^{-K}$ \todo{\cite{someone}} such that the length of the 
+optimal lossless message to encode $K$ is 
+\begin{equation}
+	I(K) = -\log{\prior{K}} = K\log{2} + \textrm{constant}.
+\end{equation}
+
+We assume a uniform prior on the individual weights $\weight_{k}$. The weights
+$\weights$ are drawn from a multinomial distribution such that they can be 
+optimally encoded in a message with length\todo{\cite{someone}}:
+\begin{equation}
+  I(\weights) 
+    = \frac{K - 1}{2}\log{N} 
+    - \frac{1}{2}\sum_{k=1}^{K}\log\weight_k 
+    - \log{\Gamma{\left(K\right)}} \quad .
+\end{equation}
+
+
+In order to properly encode the means $\vecmean$ and covariance matrices
+$\veccov$ for all $K$ mixtures, we must encode both our prior belief on 
+those parameters and the determinant of the expected Fisher information 
+matrix. For the $k$-th mixture the joint message length is
+\begin{eqnarray}
+  I(\vecmean_k,\veccov_k) &=& -\log{\left(\frac{\prior{{\vecmean_k,\veccov_k}}}{\sqrt{\detfisher{{\vecmean_k,\veccov_k}}}}\right)} \nonumber \\ 
+  I(\vecmean_k,\veccov_k) &=& -\log{\prior{{\vecmean_k,\veccov_k}}} + \frac{1}{2}\log{\detfisher{{\vecmean_k,\veccov_k}}}
+\end{eqnarray}
+
+\noindent{}and for all mixtures:
+\begin{equation}
+  I(\vecmean,\veccov) = -\sum_{k=1}^{K}\log{\prior{{\vecmean_k,\veccov_k}}} + \frac{1}{2}\sum_{k=1}^{K}\log{\detfisher{{\vecmean_k,\veccov_k}}} \quad .
+  \label{eq:I_component_params}
+\end{equation}
+
+We use an improper uniform prior on the mean $\vecmean$ for all mixtures such
+that 
+	$\mathcal{U}(\vecmean) = (-\infty, +\infty)$.
+However,  the MML principle \todo{demands} proper priors. In practice we make 
+this prior proper by assuming the bounds on $\prior{\vecmean}$ are very large, but 
+we do so without actually specifying the value of the bounds because they add 
+only a constant value to the total message length\todo{\cite{someone}}.
+We adopt a conjugate inverted Wishart prior for the covariance matrix of an
+individual mixture \cite[e.g., Section 5.2.3. of ][]{Schafer_1997}:
+\begin{equation}
+  \prior{{\vecmean_k, \veccov_k}} \propto |\veccov_k|^{\frac{D+1}{2}} \quad .
+  \label{eq:covariance-prior}
+\end{equation}
+
+
+% Casey: Reword following paragraph because it is clumsy.
+Following Eq. \ref{eq:I_component_params}, we require the logarithm of the
+determinant of the expected Fisher information matrix for $\vecmean_k$ and
+$\veccov_k$ in order to encode the full message length. We approximate the
+determinant of the Fisher information $\detfisher{{\vecmean_k, \veccov_k}}$ 
+as the product of $\detfisher{\vecmean_k}$ and $\detfisher{\veccov_k}$ 
+\cite{Oliver_1996,Roberts_1998}. In order to derive $\detfisher{\vecmean_k}$
+we take the second derivative of the log-likelihood function 
+$\likelihood(\data|\vecmean,\veccov)$, which yields:
+\begin{equation}
+  \detfisher{\vecmean_k} = (N\weight_k)^{D}|\veccov_k|^{-1} \quad .
+\end{equation}
+We make use of an analytical expression for $\detfisher{\veccov_k}$
+\cite{Dwyer_1967,Magnus_1988}:
+\begin{equation}
+  \detfisher{\veccov_k} = (N\weight_k)^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \quad .
+\end{equation}
+Combining these expressions gives our approximation for the determinant of
+the expected Fisher information $\detfisher{{\vecmean_k,\veccov_k}}$:
+\begin{eqnarray}
+  \detfisher{{\vecmean_k,\veccov_k}} & \approx & \detfisher{\vecmean_k} \cdot \detfisher{\veccov_k} \nonumber \\
+  \detfisher{{\vecmean_k,\veccov_k}} & \approx & (N\weight_k)^{D}|\veccov_k|^{-1}(N\weight_k)^\frac{D(D+1)}{2}2^{-D}|\veccov_k|^{-(D+1)} \nonumber \\
+  \detfisher{{\vecmean_k,\veccov_k}} & \approx & (N\weight_k)^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)} \quad .
+  \label{eq:mixture-component-det-fisher}
+\end{eqnarray}
+
+
+Substituting Eqs. \ref{eq:covariance-prior} and \ref{eq:mixture-component-det-fisher} 
+into Eq. \ref{eq:I_component_params} gives the message length to encode the component
+parameters $\vecmean$ and $\veccov$ for all $K$ mixtures:
+
+\begin{eqnarray}
+  I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{\prior{{\vecmean_k,\veccov_k}}} + \frac{1}{2}\sum_{k=1}^{K}\log{\detfisher{{\vecmean_k,\veccov_k}}} \nonumber \\
+  I(\vecmean,\veccov) &=& -\sum_{k=1}^{K}\log{|\veccov_k|^{\frac{D + 1}{2}}}
+	+ \frac{1}{2}\sum_{k=1}^{K}\log{\left[(N\weight_k)^\frac{D(D+3)}{2}2^{-D}|\veccov_k|^{-(D+2)}\right]} \nonumber \\
+  I(\vecmean,\veccov) &=& \frac{D(D+3)}{4}\sum_{k=1}^{K}\log{N\weight_k} -\frac{(D + 1)}{2}\sum_{k=1}^{K}\log{|\veccov_k|}
+	-\frac{KD}{2}\log{2} \nonumber \\
+  && -\frac{D+2}{2}\sum_{k=1}^{K}\log{|\veccov_k|} \nonumber \\
+  I(\vecmean,\veccov) &=& \frac{D(D+3)}{4}\sum_{k=1}^{K}\log{N\weight_k} -\frac{2D+3}{2}\sum_{k=1}^{K}\log{|\veccov_k|} - \frac{KD}{2}\log{2} 
+\end{eqnarray}
+
+
+If we assume that the data have homoskedastic noise properties, then the 
+precision of each measurement $\mathcal{E}$ relates the probability of a
+datum $p(\datum_n)$ can be related to the probability density of
+the datum, given the model 
+$p(\datum_n) = \mathcal{E}^{D}p(y_i|\mathcal{M})$.
+In this work we adopt $\mathcal{E} = 0.01$, but we note that the value of
+$\mathcal{E}$ has no effect on our inferences.  The message length of encoding
+a datum given the model is,
+\begin{equation}
+  I(\data_n) = -\log{p(\data_n)} = -D\log\mathcal{E} - \log\sum_{k=1}^{K}\weight_{k}f_{k}(\data_n|\vecmean_k,\veccov_k)
+\end{equation}
+
+\noindent{}and for the entire data:
+\begin{eqnarray}
+  I(\data|\vectheta) &=& -ND\log\mathcal{E} - \sum_{n=1}^{N}\log\sum_{k=1}^{K}w_{k}f_k(\data_n|\vecmean_k,\veccov_k) \quad .
+\end{eqnarray}
+
+The final part of the message is to encode the lattice quantisation constant,
+which arises from the approximation to the (so-called) strict MML, where
+parameters are quantised into intervals in high dimensional space in order to
+be losslessly encoded.  We use an approximation of the lattice constant
+\citep[see Sections 5.1.12 and 3.3.4 of ][]{Wallace_2005} such that,
+\begin{equation}
+  \log\kappa(Q) = \frac{\log{Q\pi}}{Q} - \log{2\pi} - 1 \quad ,
+\end{equation}
+
+\noindent{}where $Q$ is the total number of free parameters in the model. Each
+Gaussian component in the mixture requires $D$ parameters to specify $\vecmean$,
+and a covariance matrix with off-diagonal terms requires $\frac{1}{2}D(D+1)$ 
+parameters. Because only $K - 1$ weights need to be encoded, the total number of free
+parameters is
+\begin{equation}
+	Q = K\left[\frac{D(D+3)}{2} + 1\right] - 1 \quad .
+	\label{eq:number-of-parameters}
+\end{equation}
+
+
+
+%  Here
+
+ Each $k$-th mixture is a $D$-dimensional Gaussian that contributes a relative weight $\weight_k$ such that $\sum_{k=1}^{K}\weight_k = 1$. We will assume that the data have homoscedastic noise properties.
+
 The data have the same error value, $y_{err}$, in all $D$ dimensions, for all $N$ observations.
 
-The full expression for the message length is
-given by,
+The message length for the data is given by:
+
+Here we introduce the individual components that contribute to the message length.
+
+Combining these expressions, the complete message length for $K$ mixtures is given by
 
 \begin{eqnarray}
 I_K & = & K\log{2} % I_k
