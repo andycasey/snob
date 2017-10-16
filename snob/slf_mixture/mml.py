@@ -176,7 +176,7 @@ class MMLMixtureModel(BaseMixtureModel):
         '''
 
         M, N = responsibility.shape
-        N, K = data.shape
+        N, D = data.shape
 
         # Subtract the means, weighted by responsibilities.
         #w_means = np.dot(responsibility.T, self.means)
@@ -184,14 +184,18 @@ class MMLMixtureModel(BaseMixtureModel):
         
         b = (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
 
+        I = [self.message_length(data)]
         for iteration in range(self.max_em_iterations):
 
+            I.append(self.message_length(data))
             logger.debug("_aecm_step_2: iteration {} {}".format(iteration,
-                self.message_length(data)))
+                I[-1]))
+
+            assert (I[-1] - I[-2]) <= 0
 
             # The iteration scheme is from Wallace & Freeman (1992)
-            if (N - 1) * np.sum(b**2) <= K:
-                b = np.zeros(K)
+            if (N - 1) * np.sum(b**2) <= D:
+                b = np.zeros(D)
 
             specific_variances = np.sum(w**2, axis=0) \
                                / ((N - 1) * (1 + b**2))
@@ -207,14 +211,12 @@ class MMLMixtureModel(BaseMixtureModel):
             #       didn't seem to work,...
             Y = np.dot(w.T, w) / np.dot(specific_sigmas.T, specific_sigmas)
 
-            new_b = (np.dot(Y, b) * (1 - K/(N - 1) * b_sq)) \
+            new_b = (np.dot(Y, b) * (1 - D/(N - 1) * b_sq)) \
                   / ((N - 1) * (1 + b_sq))
 
             change = np.sum(np.abs(b - new_b))
 
             #logger.debug("_aecm_step_2: {} {} {}".format(iteration, change, b))
-
-
 
 
             if not np.isfinite(change):
@@ -233,7 +235,7 @@ class MMLMixtureModel(BaseMixtureModel):
             scaled_y = w/specific_sigmas
 
             b_sq = np.sum(b**2)
-            factor_scores = np.dot(scaled_y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
+            factor_scores = np.dot(scaled_y, b) * (1 - D/(N - 1) * b_sq)/(1 + b_sq)
             specific_variances = specific_sigmas**2
 
             factor_loads = factor_loads.reshape((1, -1))
@@ -351,14 +353,18 @@ class MMLMixtureModel(BaseMixtureModel):
         
         b_sq = np.sum((self.factor_loads/specific_sigmas)**2)
 
-        I["I_1"] = (N - 1) * np.sum(np.log(specific_sigmas)) \
-                 + 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq)) \
-                 + 0.5 * (v_sq + np.sum(residual**2/self.specific_variances))
+        I["I_sigmas"] = (N - 1) * np.sum(np.log(specific_sigmas))
+        I["I_a"] = 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq))
+        I["I_b"] = 0.5 * v_sq 
+        I["I_c"] = 0.5 * np.sum(residual**2/self.specific_variances)
 
         #I["lattice"] = 0.5 * N_free_params * log_kappa(N_free_params) 
         #I["constant"] = 0.5 * N_free_params
 
         I_total = np.hstack(I.values()).sum() / np.log(2) # [bits]
+
+        print(I)
+        print(np.median(residual), self.specific_variances**0.5)
 
         if not full_output:
             return I_total
