@@ -38,11 +38,12 @@ K_clusters_total = len(set(catalog["cluster_id"]))
 mml_mod = MMLMixtureModel(num_components=2, initialization_method="random")
 mml_mod.fit(X)
 
-raise a
 
-ml_mod = MLMixtureModel(num_components=2)
-ml_mod.fit(X)
+#ml_mod = MLMixtureModel(num_components=2)
+#ml_mod.fit(X)
 
+
+mml_translate_parameters = {"factor_scores": "approximate_factor_scores"}
 
 for parameter_name in ("factor_scores", "factor_loads"):
 
@@ -50,10 +51,13 @@ for parameter_name in ("factor_scores", "factor_loads"):
 
     x = gp[parameter_name].flatten()
 
-    ax.scatter(x, getattr(ml_mod, parameter_name).flatten(),
-               facecolor="r", label="ml (aecm)")
+    #ax.scatter(x, getattr(ml_mod, parameter_name).flatten(),
+    #           facecolor="r", label="ml (aecm)")
 
-    ax.scatter(x, getattr(mml_mod, parameter_name).flatten(),
+    mml_parameter_name = mml_translate_parameters.get(
+        parameter_name, parameter_name)
+
+    ax.scatter(x, getattr(mml_mod, mml_parameter_name).flatten(),
                facecolor="b", label="mml (aecm)")
 
     limits = np.array([ax.get_xlim(), ax.get_ylim()])

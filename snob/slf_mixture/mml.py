@@ -19,6 +19,14 @@ logger = logging.getLogger("snob")
 
 class MMLMixtureModel(BaseMixtureModel):
 
+    @property
+    def approximate_factor_scores(self):
+        """
+        Return approximate factor scores for each object, based on the
+        responsibility matrix.
+        """
+        return np.dot(self._responsibility.T, self.cluster_factor_scores.T)
+
 
     def initialize_parameters(self, data, **kwargs):
         r"""
@@ -70,9 +78,7 @@ class MMLMixtureModel(BaseMixtureModel):
         # We need to initialise the factor scores to be of K clusters.
         # TODO: Revisit this whether this should be effective_membership > 1
         cluster_factor_scores = np.dot(factor_scores.T, responsibility) \
-                              / effective_membership
-
-        logger.warn("DANGER WILL ROBINSON")
+                              / (effective_membership - 1)
 
         import matplotlib.pyplot as plt
 
@@ -120,90 +126,11 @@ class MMLMixtureModel(BaseMixtureModel):
         effective_membership = np.sum(responsibility, axis=1)
         weights = (effective_membership + 0.5)/(N + K/2.0)
 
-        # Get the current factor scores, given the responsibility matrix.
-        #w = (data - self.means)/self.factor_loads
-        #factor_scores = np.sum(responsibility.T * w, axis=1).reshape((N, -1))
-            
-        factor_scores = np.dot(responsibility.T, self.cluster_factor_scores.T)
 
-        # Update the factor loads.
-        factor_loads = np.mean(
-            (data - self.means)/factor_scores, axis=0).reshape((-1, D))
-
-        sigmas = np.ones((90, 2)) * self.specific_variances**0.5
-        sigmas = sigmas.flatten()
-
-        def y(x, *factor_loads):
-            factor_loads = np.array(factor_loads).reshape((1, 2))
-            return (self.means + np.dot(factor_scores, factor_loads)).flatten()
-
-        import scipy.optimize as op
-        result = op.curve_fit(y, None, data.flatten(), sigma=sigmas,
-            p0=factor_loads.flatten())
-
-        factor_loads = result[0].reshape((1, 2))
+        return self.set_parameters(weights=weights)
 
 
-        def y2(x, *cluster_factor_scores):
-            factor_scores = np.atleast_2d(cluster_factor_scores)
-            factor_scores = np.sum(responsibility.T * factor_scores, axis=1).reshape((N, -1))
 
-            return (self.means + np.dot(factor_scores, factor_loads)).flatten()
-
-        result2 = op.curve_fit(y2, None, data.flatten(), sigma=sigmas,
-            p0=self.cluster_factor_scores)
-
-
-        # Calculate the cluster factor scores.
-        #cluster_factor_scores = np.dot(responsibility, factor_scores).T \
-        #                      / effective_membership
-
-        #means = np.zeros((K, D))
-        #for k in range(K):
-        #    means[k] = np.sum(responsibility[k] * data.T, axis=1) \
-        #             / denominator[k]
-
-        """
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        ax.scatter(self.factor_scores.flatten(), factor_scores.flatten())
-
-        limits = np.array([ax.get_xlim(), ax.get_ylim()])
-        limits = (np.min(limits), np.max(limits))
-
-        ax.plot(limits, limits)
-        ax.set_xlim(limits)
-        ax.set_ylim(limits)
-
-        raise a
-        """
-        
-        #logger.debug("_aecm_step_1 means {}".format(means))
-        #logger.debug("_aecm_step_1 weights {}".format(weights))
-
-        cluster_factor_scores = np.atleast_2d(result2[0])
-        factor_scores = np.sum(responsibility.T * cluster_factor_scores, axis=1).reshape((N, -1))
-
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots()
-        ax.scatter(data.T[0], data.T[1], facecolor="#666666")
-
-        bar = self.means + np.dot(factor_scores, factor_loads)
-        ax.scatter(bar.T[0], bar.T[1], facecolor="g", alpha=0.5)
-
-        colors = "br"
-        for k in range(2):
-            foo = self.means + np.dot(cluster_factor_scores.T[k], factor_loads)
-
-            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k])
-
-        raise a
-
-        return self.set_parameters(
-            weights=weights,
-            factor_loads=factor_loads,
-            cluster_factor_scores=np.atleast_2d(result2[0]))
 
 
     def _aecm_step_2(self, data, responsibility):
@@ -259,7 +186,8 @@ class MMLMixtureModel(BaseMixtureModel):
 
         for iteration in range(self.max_em_iterations):
 
-            #logger.debug("_aecm_step_2: iteration {}".format(iteration))
+            logger.debug("_aecm_step_2: iteration {} {}".format(iteration,
+                self.message_length(data)))
 
             # The iteration scheme is from Wallace & Freeman (1992)
             if (N - 1) * np.sum(b**2) <= K:
@@ -286,6 +214,9 @@ class MMLMixtureModel(BaseMixtureModel):
 
             #logger.debug("_aecm_step_2: {} {} {}".format(iteration, change, b))
 
+
+
+
             if not np.isfinite(change):
                 raise a
 
@@ -295,6 +226,29 @@ class MMLMixtureModel(BaseMixtureModel):
                 break
 
             b = new_b        
+
+
+            specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1)))
+            factor_loads = specific_sigmas * b
+            scaled_y = w/specific_sigmas
+
+            b_sq = np.sum(b**2)
+            factor_scores = np.dot(scaled_y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
+            specific_variances = specific_sigmas**2
+
+            factor_loads = factor_loads.reshape((1, -1))
+            factor_scores = factor_scores.reshape((-1, 1))
+            specific_variances = specific_variances.reshape((1, -1))
+
+            effective_membership = responsibility.sum(axis=1)
+            
+            cluster_factor_scores = np.dot(responsibility, factor_scores).T \
+                                  / (effective_membership - 1)
+
+            self.set_parameters(
+                factor_loads=factor_loads,
+                cluster_factor_scores=cluster_factor_scores,
+                specific_variances=specific_variances)
 
             logger.debug(
                 "Iteration #{} on SLF, delta: {}".format(iteration, change))
@@ -310,6 +264,7 @@ class MMLMixtureModel(BaseMixtureModel):
             b = 0.5 * (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
             raise a
 
+
         specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1)))
         factor_loads = specific_sigmas * b
         scaled_y = w/specific_sigmas
@@ -317,16 +272,15 @@ class MMLMixtureModel(BaseMixtureModel):
         b_sq = np.sum(b**2)
         factor_scores = np.dot(scaled_y, b) * (1 - K/(N - 1) * b_sq)/(1 + b_sq)
         specific_variances = specific_sigmas**2
-        
+
         factor_loads = factor_loads.reshape((1, -1))
         factor_scores = factor_scores.reshape((-1, 1))
         specific_variances = specific_variances.reshape((1, -1))
 
         effective_membership = responsibility.sum(axis=1)
-        # TODO: make this 1-N
-
+        
         cluster_factor_scores = np.dot(responsibility, factor_scores).T \
-                              / effective_membership
+                              / (effective_membership - 1)
 
         return self.set_parameters(
             factor_loads=factor_loads,
@@ -360,59 +314,49 @@ class MMLMixtureModel(BaseMixtureModel):
         :returns:
             The total message length in units of bits.
         """
-
-        raise NotImplementedError("not checked yet")
-
+        
         yerr = np.array(yerr)
         if yerr.size == 1:
             yerr = yerr * np.ones_like(y)
         elif yerr.shape != y.shape:
             raise ValueError("shape mismatch")
 
-        log_prob_norm, log_responsibility = self._expectation(y)
+        responsibility, log_likelihood = self._expectation(y)
 
-        responsibility = np.exp(log_responsibility)
-
-        N, M = responsibility.shape
+        K, N = responsibility.shape
         N, D = y.shape
 
         I = dict()
 
-        # I(M) = M\log{2} + constant # [nats]
-        I["I_m"] = M * np.log(2)
+        # Encode the number of clusters, K.
+        #   I(K) = K\log{2} + constant # [nats]
+        I["I_k"] = K * np.log(2) # [nats]
 
-        # I(w) = \frac{(M - 1)}{2}\log{N} - \frac{1}{2}\sum_{j=1}^{M}\log{w_j} - \log{(M - 1)!} # [nats]
-        # Recall: \log{(M-1)!} = \log{|\Gamma(M)|}
-        I["I_w"] = (M - 1) / 2.0 * np.log(N) \
+        # Encode the relative weights for all K clusters.
+        #   I(w) = \frac{(K - 1)}{2}\log{N} - \frac{1}{2}\sum_{j=1}^{K}\log{w_j} - \log{(K - 1)!} # [nats]
+        # Recall: \log{(K-1)!} = \log{|\Gamma(K)|}
+        I["I_w"] = (K - 1) / 2.0 * np.log(N) \
                  - 0.5 * np.sum(np.log(self.weights)) \
-                 - scipy.special.gammaln(M)
+                 - scipy.special.gammaln(K)
 
-        if D == 1:
-            raise NotImplementedError
+        # I_1 is as per page 299 of Wallace et al. (2005).
+        _factor_scores = np.dot(self._responsibility.T, self.cluster_factor_scores.T)
 
-        else:
-            raise a
-            log_det_cov = -2 * _compute_log_det_cholesky(
-                self.precision_cholesky, self.covariance_type, D)
 
-            # \frac{1}{2}\sum_{j=1}^{M}\log{|F(\theta_j)|} = \frac{1}{2}D(D + 3)N_{eff} - D * np.log(2) - (D + 2)\log{|C|}
-           
-            I["I_F"] = 0.5 * (
-                0.5 * D * (D + 3) * np.log(np.sum(responsibility, axis=0)) \
-              - D * np.log(2) \
-              - (D - 2) * log_det_cov)
-            
-        I["I_h"] = 0 # TODO: priors
+        residual = y - self.means - np.dot(_factor_scores, self.factor_loads)
 
-        I["I_l"] = -np.sum(log_prob_norm) - np.sum(np.log(yerr)) 
+        S = np.sum(_factor_scores)
+        v_sq = np.sum(_factor_scores**2)
+        specific_sigmas = np.sqrt(self.specific_variances)
+        
+        b_sq = np.sum((self.factor_loads/specific_sigmas)**2)
 
-        if self.covariance_type == "full":
-            N_free_params = 0.5 * D * (D + 3) * M + (M - 1)
-        else:
-            raise NotImplementedError
+        I["I_1"] = (N - 1) * np.sum(np.log(specific_sigmas)) \
+                 + 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq)) \
+                 + 0.5 * (v_sq + np.sum(residual**2/self.specific_variances))
 
-        I["lattice"] = 0.5 * N_free_params * log_kappa(N_free_params) 
-        I["constant"] = 0.5 * N_free_params
+        #I["lattice"] = 0.5 * N_free_params * log_kappa(N_free_params) 
+        #I["constant"] = 0.5 * N_free_params
 
         I_total = np.hstack(I.values()).sum() / np.log(2) # [bits]
 

@@ -42,7 +42,7 @@ class BaseMixtureModel(object):
     parameter_names = ("factor_loads", "cluster_factor_scores",
         "specific_variances", "means", "weights")
 
-    def __init__(self, num_components, threshold=1e-5, max_em_iterations=10000,
+    def __init__(self, num_components, threshold=1e-8, max_em_iterations=10000,
         initialization_method="kmeans++", **kwargs):
 
         num_components = int(num_components)
@@ -130,7 +130,7 @@ class BaseMixtureModel(object):
             if parameter_name in self.parameter_names:
                 value = value if value is None else np.atleast_2d(value)
                 setattr(self, "_{}".format(parameter_name), value)
-                logger.debug("set_parameters: {} {}".format(parameter_name, value))
+                #logger.debug("set_parameters: {} {}".format(parameter_name, value))
 
             else:
                 raise ValueError("unknown parameter '{}'".format(parameter_name))
@@ -183,7 +183,7 @@ class BaseMixtureModel(object):
 
             # Re-compute the expectation,
             responsibility, log_likelihood_ = self._expectation(data)
-            assert log_likelihood_.sum() > log_likelihood.sum()
+            #assert log_likelihood_.sum() > log_likelihood.sum()
             log_likelihood = log_likelihood_
             results.append(log_likelihood.sum())
 
@@ -196,6 +196,7 @@ class BaseMixtureModel(object):
             if change <= self.threshold \
             or iteration >= self.max_em_iterations:
                 break
+
 
         return self
 
@@ -223,6 +224,9 @@ class BaseMixtureModel(object):
 
         responsibility = np.exp(log_resp).T
         
+        # Store the responsibility matrix because it is helpful to use later on
+        self._responsibility = responsibility
+
         return (responsibility, log_likelihood, weighted_log_prob) \
             if full_output else (responsibility, log_likelihood)
 
