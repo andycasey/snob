@@ -42,8 +42,10 @@ class BaseMixtureModel(object):
     parameter_names = ("factor_loads", "cluster_factor_scores",
         "specific_variances", "means", "weights")
 
-    def __init__(self, num_components, threshold=1e-8, max_em_iterations=10000,
+    def __init__(self, truth, num_components, threshold=1e-8, max_em_iterations=10000,
         initialization_method="kmeans++", **kwargs):
+
+        self.truth = truth
 
         num_components = int(num_components)
         if 1 > num_components:
@@ -132,14 +134,33 @@ class BaseMixtureModel(object):
                 value = value if value is None else np.atleast_2d(value)
                 
                 existing_value = getattr(self, pn, None)
+                try:
+                    true_value = self.truth[parameter_name]
+                except:
+                    if parameter_name == "cluster_factor_scores":
+                        true_value = np.unique(self.truth["factor_scores"])
+                    else:
+                        raise
+                    
                 setattr(self, pn, value)
 
-                if parameter_name == "specific_variances" and value is not None:
-                    logger.debug("set_parameters: {} {} (specific_sigmas from {} to {})".format(
-                        parameter_name, value, np.sqrt(existing_value) if existing_value is not None else None, np.sqrt(value)))
+                
+                if true_value is not None and existing_value is not None:
+                    diff_before = np.sum(np.abs(existing_value - value))
+                    diff_now = np.sum(np.abs(true_value - value))
+
+                    print(parameter_name, value, diff_before, diff_now, "GOOD" if diff_now < diff_before else "BAD")
+
+
                 else:
-                    logger.debug("set_parameters: {} from {} to {}".format(
-                        parameter_name, existing_value, value))
+
+
+                    if parameter_name == "specific_variances" and value is not None:
+                        logger.debug("set_parameters: {} {} (specific_sigmas from {} to {})".format(
+                            parameter_name, value, np.sqrt(existing_value) if existing_value is not None else None, np.sqrt(value)))
+                    else:
+                        logger.debug("set_parameters: {} from {} to {}".format(
+                            parameter_name, existing_value, value))
 
             else:
                 raise ValueError("unknown parameter '{}'".format(parameter_name))
@@ -205,6 +226,9 @@ class BaseMixtureModel(object):
             
             logger.debug("fit: {} {} {} {}".format(
                 iteration, results[-1], change, I[-1]))
+
+            if not np.isfinite(I[-1]) or not np.isfinite(results[-1]):
+                raise wtf
             
             if change <= self.threshold \
             or iteration >= self.max_em_iterations:
@@ -299,6 +323,10 @@ def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
     #colors = "br"
 
     # TODO consider multiplication of inv_specific_variances instead
+    #import matplotlib.pyplot as plt
+    #fig, ax = plt.subplots()
+    #ax.scatter(data.T[0], data.T[1], facecolor="#666666", zorder=-1, alpha=0.5)
+    #colors = "br"
 
     log_prob = np.empty((N, K))
     for k, factor_scores in enumerate(cluster_factor_scores.T):
@@ -308,6 +336,8 @@ def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
         #foo = mean + np.dot(factor_scores, factor_loads)
         #ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k], alpha=0.5)
 
+
+    #raise a
 
     return - 0.5 * K * N * np.log(2 * np.pi) \
            + N * np.sum(np.log(specific_variances)) \

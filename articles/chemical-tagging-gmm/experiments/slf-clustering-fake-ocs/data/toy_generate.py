@@ -43,8 +43,8 @@ means = np.mean(oc_mean_properties["__Fe_H_"]) \
 means = np.zeros(2)
 
 specific_sigmas = np.clip(
-    np.abs(np.random.normal(0, 0.01, size=len(elements_measured))),
-    0.005, 0.05)
+    np.abs(np.random.normal(0, 0.10, size=len(elements_measured))),
+    0.05, 0.5)
 
 cluster_dispersion = 0.01
 
@@ -68,7 +68,7 @@ cluster_factor_scores = []
 # Just take two clusters.
 open_clusters = np.random.choice(oc_mean_properties, size=2, replace=False)
 
-
+weights = []
 for i, open_cluster in enumerate(open_clusters):
 
     mean_cluster_abundance = open_cluster["__Fe_H_"]
@@ -109,8 +109,11 @@ for i, open_cluster in enumerate(open_clusters):
 
     cluster_variates.append(variates)
     cluster_factor_scores.append(factor_scores)
+    weights.append(N_cluster)
 
 
+weights = np.array(weights).astype(float)
+weights /= np.sum(weights)
 
 # Generate a faux-catalog.
 names = ["star_id", "cluster_id"]
@@ -136,7 +139,9 @@ generated_parameters = dict(
     variates=np.vstack(cluster_variates),
     factor_loads=factor_loads,
     factor_scores=np.vstack(cluster_factor_scores),
-    specific_sigmas=specific_sigmas
+    specific_sigmas=specific_sigmas,
+    specific_variances=specific_sigmas**2,
+    weights=weights
 )
 
 with open("{}_generated-parameters.pkl".format(PREFIX), "wb") as fp:

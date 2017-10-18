@@ -104,7 +104,7 @@ class MMLMixtureModel(BaseMixtureModel):
                 raise wtf
 
             # HACK TODO MAGIC
-            if sum_l2 < 1e-16:
+            if sum_l2 < 1e-4:
                 break
 
             beta = beta_new
@@ -140,6 +140,15 @@ class MMLMixtureModel(BaseMixtureModel):
         # TODO: Revisit this whether this should be effective_membership > 1
         cluster_factor_scores = np.dot(factor_scores.T, responsibility) \
                               / (effective_membership - 1)
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.scatter(data.T[0], data.T[1], facecolor="#666666", zorder=-1)
+
+        colors = "br"
+        for i in range(2):
+            y = means + np.dot(cluster_factor_scores.flatten()[i], factor_loads)
+            ax.scatter(y.T[0], y.T[1], c=colors[i])
 
         # Set the parameters.
         return self.set_parameters(means=means, weights=weights,
@@ -197,76 +206,62 @@ class MMLMixtureModel(BaseMixtureModel):
         K, N = responsibility.shape
         N, D = data.shape
 
+        w = data - self.means
+
         # Recall:
         #   N is the number of things
         #   D is the number of dimensions per thing
         #   K is the number of clusters
 
         # Order of updates:
-        # (1) Update the cluster factor scores 
-
-        # In Wallace & Freeman (1990) the MML estimate is given by Eq (4.4),
-        # where in their nomenclature:
-        #   v_{n} = y_{n}\dot\Beta/(1 + b^2 + K/v^2)
-        # where in our nomenclature:
-        #   v_{n} = y_{n}\dot\Beta/(1 + b^2 + D/v^2)
-
-        beta = self.factor_loads/np.sqrt(self.specific_variances)
+        # (1) Update the cluster factor scores.
+        # From page 299 of Wallace (2005):
+        #   v_{n} = (1 - 1/N)y \dot b/C^2
+        # Where C^2 is the principal eigenvalue
+        
+        # TODO: we should probably store the principal eigenvalue.....
+        _, s, v = np.linalg.svd(np.corrcoef(data.T))
+        specific_sigmas = np.sqrt(self.specific_variances)
+        
+        beta = self.factor_loads/specific_sigmas
+        factor_scores = (1 - 1.0/N) * np.dot(data, beta.T/s[0])
         effective_membership = responsibility.sum(axis=1)
-
-        b_squared = np.sum(beta**2)
-        v_squared = np.sum(effective_membership * self.cluster_factor_scores**2)
-
-        factor_scores = np.dot(data, beta.T)/(1.0 + b_squared + float(D)/v_squared)
         cluster_factor_scores = np.dot(responsibility, factor_scores).T \
                               / (effective_membership - 1.0)
-
         cluster_factor_scores = np.atleast_2d(cluster_factor_scores)
+
         self.set_parameters(cluster_factor_scores=cluster_factor_scores)
 
+        raise a
+
+        """
         # (2) Update the expectation
-        #responsibility, _ = self._expectation(data)
-        #self._aecm_step_1(data, responsibility)
+        responsibility, _ = self._expectation(data)
 
-        # (3) Update the factor loads
-        
-        # In Wallace & Freeman (1990) the MML estimate for \Beta_k is given by
-        #   \Beta_{k} = \sum_{n} y_{nk}v_{n}/(N - 1)
-        # which is the same in our nomenclature and theirs (finally!)
+        # (3) Update the factor loads.
+        # From page 299 of Wallace (2005) we can update beta as:
+        # (in our nomenclature)
+        #   \beta_{k} = \frac{1 - D/((N - 1)b^2)}{(N - 1)*(1 + b^2)} * Y \dot b
+        b_squared = np.sum(beta**2)
 
-        # Note: could use self.approximate_factor_scores here but I am doing
-        #       this here so that it is clear this makes use of the updated
-        #       responsibility matrix.
-        approximate_factor_scores = np.dot(
-            responsibility.T, cluster_factor_scores.T)
+        specific_sigmas = np.atleast_2d(specific_sigmas)
+        Y = np.dot(w.T, w) / np.outer(specific_sigmas.T, specific_sigmas)
+        beta = ((1.0 - float(D)/((N - 1.0) * b_squared)) \
+             / ((N - 1.0) * (1.0 + b_squared)) \
+             * np.dot(Y, beta.T)).T
+        factor_loads = beta * specific_sigmas
 
-        beta = np.sum(data * approximate_factor_scores, axis=0)/(N - 1.0)
-        factor_loads = beta * np.sqrt(self.specific_variances)
         self.set_parameters(factor_loads=factor_loads)
-
         
         # (4) Update the expectation
-        #responsibility, _ = self._expectation(data)
+        responsibility, _ = self._expectation(data)
         #self._aecm_step_1(data, responsibility)
 
+
         # (5) Update the specific sigmas
-        # In Wallace & Freeman (1990) the MML estimate for the specific
-        # variances can be found from eq (4.9):
-        #   (N - 1)\sigma_{k}^{2} = \frac{\sum_{n}w_{nk}^2}{(N - 1)(1 + \Beta_{k}^2}
-        # or similarly from eq (4.10):
-        #   (N - 1)\sigma_{k}^{2} = \sum_{n} (w_{nk} - v_{n}a_{k})^2 + a_{k}^{2}(N - 1 - v^{2})
-        # Which is the same in our nomenclature or ours.
-
-        # Eq 4.10:
-        #effective_membership = responsibility.sum(axis=1)
-        #v_squared = np.sum(effective_membership * cluster_factor_scores**2)
-        #rhs = (w - np.dot(factor_scores, factor_loads))**2 + factor_loads**2 * (N - 1.0 - v_squared)
-        #specific_variances = np.sum(rhs, axis=0)/(N - 1.0)
-
-        beta = factor_loads/np.sqrt(self.specific_variances)
-        w = data - self.means
-        rhs = np.sum(w**2, axis=0) / ((N - 1.0) * (1.0 + beta**2))
-        specific_variances = rhs / (N - 1.0)
+        b_squared = np.sum(beta**2)
+        specific_variances = np.sum(w**2, axis=0) \
+                           / ((N - 1.0) * (1.0 + b_squared))
 
         self.set_parameters(specific_variances=specific_variances)
 
@@ -275,7 +270,7 @@ class MMLMixtureModel(BaseMixtureModel):
         raise a
 
 
-
+        """
 
         I = [self.message_length(data)]
 
@@ -601,6 +596,8 @@ class MMLMixtureModel(BaseMixtureModel):
 
         I["I_sigmas"] = (N - 1) * np.sum(np.log(specific_sigmas))
         I["I_a"] = 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq))
+        if not np.isfinite(I["I_a"]):
+            raise a
         I["I_b"] = 0.5 * v_sq 
         I["I_c"] = 0.5 * np.sum(residual**2/self.specific_variances)
 
