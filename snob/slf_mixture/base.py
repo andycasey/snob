@@ -130,7 +130,12 @@ class BaseMixtureModel(object):
             if parameter_name in self.parameter_names:
                 value = value if value is None else np.atleast_2d(value)
                 setattr(self, "_{}".format(parameter_name), value)
-                #logger.debug("set_parameters: {} {}".format(parameter_name, value))
+
+                if parameter_name == "specific_variances" and value is not None:
+                    logger.debug("set_parameters: {} {} (specific_sigmas = {})".format(
+                        parameter_name, value, np.sqrt(value)))
+                else:
+                    logger.debug("set_parameters: {} {}".format(parameter_name, value))
 
             else:
                 raise ValueError("unknown parameter '{}'".format(parameter_name))

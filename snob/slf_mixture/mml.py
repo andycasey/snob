@@ -53,8 +53,23 @@ class MMLMixtureModel(BaseMixtureModel):
         U, S, V = np.linalg.svd(w.T)
         factor_scores = (V[0] * S[0]**0.5).reshape((N, -1))
         factor_loads = np.mean(w/factor_scores, axis=0).reshape((-1, D))
+        
+        # Suspect this is WRONG:
         specific_variances = np.var(
             w - np.dot(factor_scores, factor_loads), axis=0)
+        
+        # Try setting variance as squared peak-to-peak range to help the
+        # iterative scheme
+        specific_variances = np.ptp(
+            w - np.dot(factor_scores, factor_loads), axis=0)**2
+
+
+        #foo = w - np.dot(factor_scores, factor_loads)
+
+        #import matplotlib.pyplot as plt
+        #fig, ax = plt.subplots()
+        #ax.scatter(foo.T[0], foo.T[1])
+        #raise a
 
         # Do initial clustering on the factor scores.
         responsibility = np.zeros((N, self.num_components))
@@ -149,6 +164,127 @@ class MMLMixtureModel(BaseMixtureModel):
         """
         
 
+        K, N = responsibility.shape
+        N, D = data.shape
+
+        # Recall:
+        #   N is the number of things
+        #   D is the number of dimensions per thing
+        #   K is the number of clusters
+
+        w = data - self.means
+        V = np.dot(w.T, w)
+        
+        I = [self.message_length(data)]
+
+        specific_sigmas = np.clip(np.copy(self.specific_variances)**0.5, 0.1, np.inf)
+
+
+        # NOTE THE TERMINOLOGY DIFFERENCE
+        # \Beta_k refers to a_k/\sigma_k 
+        # b^2 refers to \sum_{k}\Beta_k^2
+
+        beta = self.factor_loads/specific_sigmas
+        beta = np.sum(data * self.approximate_factor_scores, axis=0) \
+             / (N - 1.0)
+
+        for iteration in range(self.max_em_iterations):
+
+            # In Wallace & Freeman nomenclature:
+            #   If (N - 1) * b^2 <= K, set \Beta = 0
+            # Which is, in our nomenclature:
+            #   If (N - 1) * b^2 <= D, set \Beta = 0
+            lhs = (N - 1.0) * np.sum(beta**2)
+            if lhs <= D:
+                logger.warn("Setting \Beta = 0 because {} <= {}".format(lhs, D))
+                beta = np.zeros(D, dtype=float)
+
+            #else:
+            #    beta = np.sum(data * self.approximate_factor_scores, axis=0) \
+            #         / (N - 1.0)
+
+            # Compute specific variances according to:
+            #   \sigma_k^2 = \frac{\sum_{n}w_{nk}^2}{(N-1)(1 + \Beta_k^2)}
+            # (If \Beta = 0, exit)
+            specific_variances = np.sum(w**2, axis=0) \
+                               / ((N - 1.0) * (1.0 + beta**2))
+
+            if np.all(beta == 0):
+                logger.warn("Exiting step (b) of scheme in _aecm_step_2")
+                break
+
+            # Compute Y using 
+            #   Y_{kj} = V_{kj}/\sigma_{k}\sigma_{j}
+            # which is Wallace & Freeman nomenclature. In our nomenclature
+            # that is:
+            #   Y_{ij} = V_{ij}/\sigma_{i}\sigma_{j}
+
+            specific_sigmas = np.atleast_2d(specific_variances**0.5)
+
+            Y = V / np.dot(specific_sigmas.T, specific_sigmas)
+
+            # Compute an updated estimate of \beta as:
+            #   \Beta_{new} = \frac{Y\Beta(1-K/(N-1)b^2)}{(N - 1)(1 + b^2)}
+            # which is Wallace & Freeman nomenclature. In our nomenclature
+            # that is:
+            #   \Beta_{new} = \frac{Y\Beta(1-D/(N - 1)b^2)}{(N - 1)(1 + b^2)}
+
+            # Where you will recall (in our nomenclature)
+            #   b^2 = \sum_{D} b_d^2
+            # And b_{d} = a_{d}/\sigma_{d}
+
+            b_squared = np.sum(beta**2)
+            beta_new = (np.dot(Y, beta.flatten()) * (1.0 - D/(N - 1.0) * b_squared)) \
+                     / ((N - 1.0) * (1.0 + b_squared))
+
+            # If \Beta_new \approx \Beta then exit.
+            abs_difference = np.sum(np.abs(beta - beta_new))
+            print(iteration, abs_difference, beta, beta_new, )
+
+            # TODO MAGIC HACK
+            
+            if not np.isfinite(abs_difference):
+                raise wtf
+
+            if abs_difference < 1e-8:
+                break
+
+
+
+            beta = beta_new
+
+
+        factor_loads = specific_sigmas * beta
+
+        b_sq = np.sum(beta**2)
+        factor_scores = np.dot(data, beta.flatten()) * (1.0 - D/(N - 1.0) * b_sq) \
+                      / (1.0 + b_sq)
+
+        # Calculate cluster factor scores.
+        effective_membership = np.sum(responsibility, axis=1)
+        cluster_factor_scores = np.dot(responsibility, factor_scores).T \
+                              / (effective_membership - 1.0)
+
+        cluster_factor_scores = np.atleast_2d(cluster_factor_scores)
+        specific_variances = np.atleast_2d(specific_variances)
+
+        return self.set_parameters(
+            factor_loads=factor_loads,
+            cluster_factor_scores=cluster_factor_scores,
+            specific_variances=specific_variances)
+
+
+
+
+
+
+
+
+
+        # All below is wrong due to nomenclature!
+
+
+
         '''
         K, N = responsibility.shape
         N, D = data.shape
@@ -191,7 +327,6 @@ class MMLMixtureModel(BaseMixtureModel):
             logger.debug("_aecm_step_2: iteration {} {}".format(iteration,
                 I[-1]))
 
-            assert (I[-1] - I[-2]) <= 0
 
             # The iteration scheme is from Wallace & Freeman (1992)
             if (N - 1) * np.sum(b**2) <= D:
@@ -229,12 +364,14 @@ class MMLMixtureModel(BaseMixtureModel):
 
             b = new_b        
 
-
-            specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1)))
+            b_sq = np.sum(b**2)
+            specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) / ((b_sq + 1.0) * (N - 1)))
             factor_loads = specific_sigmas * b
             scaled_y = w/specific_sigmas
 
-            b_sq = np.sum(b**2)
+            print("specific sigmas {}".format(specific_sigmas))
+            raise a
+
             factor_scores = np.dot(scaled_y, b) * (1 - D/(N - 1) * b_sq)/(1 + b_sq)
             specific_variances = specific_sigmas**2
 
@@ -266,6 +403,8 @@ class MMLMixtureModel(BaseMixtureModel):
             b = 0.5 * (self.factor_loads/np.sqrt(self.specific_variances)).flatten()
             raise a
 
+
+        raise a
 
         specific_sigmas = np.sqrt(np.diag(np.dot(w.T, w)) / ((b*b + 1.0) * (N - 1)))
         factor_loads = specific_sigmas * b
