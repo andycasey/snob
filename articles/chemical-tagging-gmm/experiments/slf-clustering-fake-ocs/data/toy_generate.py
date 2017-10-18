@@ -48,7 +48,7 @@ specific_sigmas = np.clip(
 
 cluster_dispersion = 0.01
 
-magnitude_of_factor_load = 0.25
+magnitude_of_factor_load = 2.5
 # --------------------- #
 
 

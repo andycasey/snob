@@ -47,10 +47,101 @@ class MMLMixtureModel(BaseMixtureModel):
         means = np.mean(data, axis=0)
         
         w = data - means
+        V = np.dot(w.T, w)
+        
+        # Set \beta as the dominant eigenvector of the correlation matrix with
+        # length given by setting b^2 equal to the dominant eigenvalue.
+        u, s, v = np.linalg.svd(np.corrcoef(data.T))
+        beta = v[0] * s[0]
 
-        # Set the initial factor scores by their location along the principal
-        # eigenvetor, scaled by the square root
-        U, S, V = np.linalg.svd(w.T)
+        # Iterate as per Wallace & Freeman first.
+        for iteration in range(self.max_em_iterations):
+
+            b_squared = np.sum(beta**2)
+
+            lhs = (N - 1.0) * b_squared
+            if lhs <= D:
+                logger.warn("Setting \Beta = 0 as {} <= {}".format(lhs, D))
+                beta = np.zeros(D)
+
+            # Compute specific variances according to:
+            #   \sigma_k^2 = \frac{\sum_{n}w_{nk}^2}{(N-1)(1 + \Beta_k^2)}
+            # (If \Beta = 0, exit)
+            specific_variances = np.diag(V) / ((N - 1.0) * (1.0 + beta**2))
+
+            if np.all(beta == 0):
+                logger.warn("Exiting step (b) of scheme in initialisation")
+                break
+
+            # Compute Y using 
+            #   Y_{kj} = V_{kj}/\sigma_{k}\sigma_{j}
+            # which is Wallace & Freeman nomenclature. In our nomenclature
+            # that is:
+            #   Y_{ij} = V_{ij}/\sigma_{i}\sigma_{j}
+
+            specific_sigmas = np.atleast_2d(specific_variances**0.5)
+            Y = V / np.dot(specific_sigmas.T, specific_sigmas)
+
+            # Compute an updated estimate of \beta as:
+            #   \Beta_{new} = \frac{Y\Beta(1-K/(N-1)b^2)}{(N - 1)(1 + b^2)}
+            # which is Wallace & Freeman nomenclature. In our nomenclature
+            # that is:
+            #   \Beta_{new} = \frac{Y\Beta(1-D/(N - 1)b^2)}{(N - 1)(1 + b^2)}
+
+            # Where you will recall (in our nomenclature)
+            #   b^2 = \sum_{D} b_d^2
+            # And b_{d} = a_{d}/\sigma_{d}
+
+            b_squared = np.sum(beta**2)
+            beta_new = (np.dot(Y, beta) * (1.0 - D/(N - 1.0) * b_squared)) \
+                     / ((N - 1.0) * (1.0 + b_squared))
+
+            # If \Beta_new \approx \Beta then exit.
+            sum_l2 = np.sum((beta - beta_new)**2)
+            print(iteration, sum_l2, beta, beta_new, )
+
+            if not np.isfinite(sum_l2):
+                raise wtf
+
+            # HACK TODO MAGIC
+            if sum_l2 < 1e-8:
+                break
+
+            beta = beta_new
+
+
+        factor_loads = specific_sigmas * beta
+
+        b_sq = np.sum(beta**2)
+        factor_scores = np.dot(w/specific_sigmas, beta) \
+                      * ((1.0 - D/((N - 1.0) * b_sq)) / (1 + b_sq))
+        factor_scores = np.atleast_2d(factor_scores).T
+        
+        raise a
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.scatter(data.T[0], data.T[1], facecolor="#666666")
+
+        bar = means + np.dot(factor_scores, factor_loads)
+        ax.scatter(bar.T[0], bar.T[1], facecolor="g", alpha=0.5)
+
+        colors = "br"
+        for k in range(2):
+            foo = means + np.dot(cluster_factor_scores.T[k], factor_loads)
+
+            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k])
+
+
+        raise a
+
+
+         # Calculate cluster factor scores.
+        effective_membership = np.sum(responsibility, axis=1)
+        cluster_factor_scores = np.dot(responsibility, factor_scores).T \
+                              / (effective_membership - 1.0)
+
+
         factor_scores = (V[0] * S[0]**0.5).reshape((N, -1))
         factor_loads = np.mean(w/factor_scores, axis=0).reshape((-1, D))
         
@@ -177,14 +268,19 @@ class MMLMixtureModel(BaseMixtureModel):
         
         I = [self.message_length(data)]
 
-        specific_sigmas = np.clip(np.copy(self.specific_variances)**0.5, 0.1, np.inf)
-
-
         # NOTE THE TERMINOLOGY DIFFERENCE
         # \Beta_k refers to a_k/\sigma_k 
         # b^2 refers to \sum_{k}\Beta_k^2
 
         beta = self.factor_loads/specific_sigmas
+
+
+
+
+
+
+        raise a
+
         beta = np.sum(data * self.approximate_factor_scores, axis=0) \
              / (N - 1.0)
 
