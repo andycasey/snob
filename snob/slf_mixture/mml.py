@@ -173,7 +173,6 @@ class MMLMixtureModel(BaseMixtureModel):
         effective_membership = np.sum(responsibility, axis=1)
         weights = (effective_membership + 0.5)/(N + K/2.0)
 
-
         return self.set_parameters(weights=weights)
 
 
@@ -195,7 +194,6 @@ class MMLMixtureModel(BaseMixtureModel):
             partially assigned to each :math:`K` component.
         """
         
-
         K, N = responsibility.shape
         N, D = data.shape
 
@@ -204,16 +202,88 @@ class MMLMixtureModel(BaseMixtureModel):
         #   D is the number of dimensions per thing
         #   K is the number of clusters
 
-        w = data - self.means
-        V = np.dot(w.T, w)
+        # Order of updates:
+        # (1) Update the cluster factor scores 
+
+        # In Wallace & Freeman (1990) the MML estimate is given by Eq (4.4),
+        # where in their nomenclature:
+        #   v_{n} = y_{n}\dot\Beta/(1 + b^2 + K/v^2)
+        # where in our nomenclature:
+        #   v_{n} = y_{n}\dot\Beta/(1 + b^2 + D/v^2)
+
+        beta = self.factor_loads/np.sqrt(self.specific_variances)
+        effective_membership = responsibility.sum(axis=1)
+
+        b_squared = np.sum(beta**2)
+        v_squared = np.sum(effective_membership * self.cluster_factor_scores**2)
+
+        factor_scores = np.dot(data, beta.T)/(1.0 + b_squared + float(D)/v_squared)
+        cluster_factor_scores = np.dot(responsibility, factor_scores).T \
+                              / (effective_membership - 1.0)
+
+        cluster_factor_scores = np.atleast_2d(cluster_factor_scores)
+        self.set_parameters(cluster_factor_scores=cluster_factor_scores)
+
+        # (2) Update the expectation
+        #responsibility, _ = self._expectation(data)
+        #self._aecm_step_1(data, responsibility)
+
+        # (3) Update the factor loads
         
+        # In Wallace & Freeman (1990) the MML estimate for \Beta_k is given by
+        #   \Beta_{k} = \sum_{n} y_{nk}v_{n}/(N - 1)
+        # which is the same in our nomenclature and theirs (finally!)
+
+        # Note: could use self.approximate_factor_scores here but I am doing
+        #       this here so that it is clear this makes use of the updated
+        #       responsibility matrix.
+        approximate_factor_scores = np.dot(
+            responsibility.T, cluster_factor_scores.T)
+
+        beta = np.sum(data * approximate_factor_scores, axis=0)/(N - 1.0)
+        factor_loads = beta * np.sqrt(self.specific_variances)
+        self.set_parameters(factor_loads=factor_loads)
+
+        
+        # (4) Update the expectation
+        #responsibility, _ = self._expectation(data)
+        #self._aecm_step_1(data, responsibility)
+
+        # (5) Update the specific sigmas
+        # In Wallace & Freeman (1990) the MML estimate for the specific
+        # variances can be found from eq (4.9):
+        #   (N - 1)\sigma_{k}^{2} = \frac{\sum_{n}w_{nk}^2}{(N - 1)(1 + \Beta_{k}^2}
+        # or similarly from eq (4.10):
+        #   (N - 1)\sigma_{k}^{2} = \sum_{n} (w_{nk} - v_{n}a_{k})^2 + a_{k}^{2}(N - 1 - v^{2})
+        # Which is the same in our nomenclature or ours.
+
+        # Eq 4.10:
+        #effective_membership = responsibility.sum(axis=1)
+        #v_squared = np.sum(effective_membership * cluster_factor_scores**2)
+        #rhs = (w - np.dot(factor_scores, factor_loads))**2 + factor_loads**2 * (N - 1.0 - v_squared)
+        #specific_variances = np.sum(rhs, axis=0)/(N - 1.0)
+
+        beta = factor_loads/np.sqrt(self.specific_variances)
+        w = data - self.means
+        rhs = np.sum(w**2, axis=0) / ((N - 1.0) * (1.0 + beta**2))
+        specific_variances = rhs / (N - 1.0)
+
+        self.set_parameters(specific_variances=specific_variances)
+
+        return True
+
+        raise a
+
+
+
+
         I = [self.message_length(data)]
 
         # NOTE THE TERMINOLOGY DIFFERENCE
         # \Beta_k refers to a_k/\sigma_k 
         # b^2 refers to \sum_{k}\Beta_k^2
 
-        beta = self.factor_loads/specific_sigmas
+        beta = self.factor_loads/specific_sigmas 
 
 
 

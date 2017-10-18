@@ -128,14 +128,18 @@ class BaseMixtureModel(object):
 
         for parameter_name, value in kwargs.items():
             if parameter_name in self.parameter_names:
+                pn = "_{}".format(parameter_name)
                 value = value if value is None else np.atleast_2d(value)
-                setattr(self, "_{}".format(parameter_name), value)
+                
+                existing_value = getattr(self, pn, None)
+                setattr(self, pn, value)
 
                 if parameter_name == "specific_variances" and value is not None:
-                    logger.debug("set_parameters: {} {} (specific_sigmas = {})".format(
-                        parameter_name, value, np.sqrt(value)))
+                    logger.debug("set_parameters: {} {} (specific_sigmas from {} to {})".format(
+                        parameter_name, value, np.sqrt(existing_value) if existing_value is not None else None, np.sqrt(value)))
                 else:
-                    logger.debug("set_parameters: {} {}".format(parameter_name, value))
+                    logger.debug("set_parameters: {} from {} to {}".format(
+                        parameter_name, existing_value, value))
 
             else:
                 raise ValueError("unknown parameter '{}'".format(parameter_name))
@@ -169,7 +173,9 @@ class BaseMixtureModel(object):
         responsibility, log_likelihood = self._expectation(data) 
 
         results = [log_likelihood.sum()]
-        logger.debug("fit: initial ll: {}".format(results[0]))
+        I = [self.message_length(data)]
+
+        logger.debug("fit: initial ll/I: {} {}".format(results[0], I[0]))
 
         for iteration in range(self.max_em_iterations):
 
@@ -182,7 +188,6 @@ class BaseMixtureModel(object):
             responsibility, _ = self._expectation(data)
             logger.debug("fit intermediate ll: {}".format(_.sum()))
 
-
             # Do the M-step of cycle 2
             self._aecm_step_2(data, responsibility)
 
@@ -191,12 +196,15 @@ class BaseMixtureModel(object):
             #assert log_likelihood_.sum() > log_likelihood.sum()
             log_likelihood = log_likelihood_
             results.append(log_likelihood.sum())
+            I.append(self.message_length(data))
+
 
             # Check for convergence.
-            change = np.abs((results[-1] - results[-2])/results[-2])
+            metric = results
+            change = np.abs((metric[-1] - metric[-2])/metric[-2])
             
-            logger.debug("fit: {} {} {}".format(
-                iteration, results[-1], change))
+            logger.debug("fit: {} {} {} {}".format(
+                iteration, results[-1], change, I[-1]))
             
             if change <= self.threshold \
             or iteration >= self.max_em_iterations:
