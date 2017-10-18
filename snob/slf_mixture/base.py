@@ -149,7 +149,8 @@ class BaseMixtureModel(object):
                     diff_before = np.sum(np.abs(existing_value - value))
                     diff_now = np.sum(np.abs(true_value - value))
 
-                    print(parameter_name, value, diff_before, diff_now, "GOOD" if diff_now < diff_before else "BAD")
+                    logger.debug("set_parameters: {} {} (before: {}; truth {}) diffs (before: {}; now: {}) {}".format(
+                        parameter_name, value, existing_value, true_value, diff_before, diff_now, "GOOD" if diff_now < diff_before else "BAD"))
 
 
                 else:
@@ -221,7 +222,7 @@ class BaseMixtureModel(object):
 
 
             # Check for convergence.
-            metric = results
+            metric = I
             change = np.abs((metric[-1] - metric[-2])/metric[-2])
             
             logger.debug("fit: {} {} {} {}".format(
@@ -234,7 +235,23 @@ class BaseMixtureModel(object):
             or iteration >= self.max_em_iterations:
                 break
 
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
 
+        ax.scatter(data.T[0], data.T[1], c="#666666", alpha=0.5)
+
+        N, D = data.shape
+        colors = "br"
+        for i in range(D):
+            foo = self.means + np.dot(self.cluster_factor_scores.flatten()[i], self.factor_loads)
+            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[i])
+
+        fig, ax = plt.subplots()
+
+        transformed = data - self.means - np.dot(self.approximate_factor_scores, self.factor_loads)
+        ax.scatter(transformed.T[0], transformed.T[1], c=responsibility[0])
+
+        raise a
         return self
 
 

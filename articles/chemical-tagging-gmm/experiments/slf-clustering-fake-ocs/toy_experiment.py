@@ -34,7 +34,7 @@ K_clusters_total = len(set(catalog["cluster_id"]))
 #X = X[keep]
 
 
-mml_mod = MMLMixtureModel(gp, num_components=2, initialization_method="kmeans++")
+mml_mod = MMLMixtureModel(gp, num_components=2, initialization_method="random")
 #mml_mod.truth = gp
 mml_mod.fit(X)
 
