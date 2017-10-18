@@ -51,8 +51,8 @@ class MMLMixtureModel(BaseMixtureModel):
         
         # Set \beta as the dominant eigenvector of the correlation matrix with
         # length given by setting b^2 equal to the dominant eigenvalue.
-        u, s, v = np.linalg.svd(np.corrcoef(data.T))
-        beta = v[0] * s[0]
+        _, s, v = np.linalg.svd(np.corrcoef(data.T))
+        beta = v[0] * np.sqrt(s[0])
 
         # Iterate as per Wallace & Freeman first.
         for iteration in range(self.max_em_iterations):
@@ -104,7 +104,7 @@ class MMLMixtureModel(BaseMixtureModel):
                 raise wtf
 
             # HACK TODO MAGIC
-            if sum_l2 < 1e-8:
+            if sum_l2 < 1e-16:
                 break
 
             beta = beta_new
@@ -116,51 +116,6 @@ class MMLMixtureModel(BaseMixtureModel):
         factor_scores = np.dot(w/specific_sigmas, beta) \
                       * ((1.0 - D/((N - 1.0) * b_sq)) / (1 + b_sq))
         factor_scores = np.atleast_2d(factor_scores).T
-        
-        raise a
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots()
-        ax.scatter(data.T[0], data.T[1], facecolor="#666666")
-
-        bar = means + np.dot(factor_scores, factor_loads)
-        ax.scatter(bar.T[0], bar.T[1], facecolor="g", alpha=0.5)
-
-        colors = "br"
-        for k in range(2):
-            foo = means + np.dot(cluster_factor_scores.T[k], factor_loads)
-
-            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k])
-
-
-        raise a
-
-
-         # Calculate cluster factor scores.
-        effective_membership = np.sum(responsibility, axis=1)
-        cluster_factor_scores = np.dot(responsibility, factor_scores).T \
-                              / (effective_membership - 1.0)
-
-
-        factor_scores = (V[0] * S[0]**0.5).reshape((N, -1))
-        factor_loads = np.mean(w/factor_scores, axis=0).reshape((-1, D))
-        
-        # Suspect this is WRONG:
-        specific_variances = np.var(
-            w - np.dot(factor_scores, factor_loads), axis=0)
-        
-        # Try setting variance as squared peak-to-peak range to help the
-        # iterative scheme
-        specific_variances = np.ptp(
-            w - np.dot(factor_scores, factor_loads), axis=0)**2
-
-
-        #foo = w - np.dot(factor_scores, factor_loads)
-
-        #import matplotlib.pyplot as plt
-        #fig, ax = plt.subplots()
-        #ax.scatter(foo.T[0], foo.T[1])
-        #raise a
 
         # Do initial clustering on the factor scores.
         responsibility = np.zeros((N, self.num_components))
@@ -185,20 +140,6 @@ class MMLMixtureModel(BaseMixtureModel):
         # TODO: Revisit this whether this should be effective_membership > 1
         cluster_factor_scores = np.dot(factor_scores.T, responsibility) \
                               / (effective_membership - 1)
-
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots()
-        ax.scatter(data.T[0], data.T[1], facecolor="#666666")
-
-        bar = means + np.dot(factor_scores, factor_loads)
-        ax.scatter(bar.T[0], bar.T[1], facecolor="g", alpha=0.5)
-
-        colors = "br"
-        for k in range(2):
-            foo = means + np.dot(cluster_factor_scores.T[k], factor_loads)
-
-            ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k])
 
         # Set the parameters.
         return self.set_parameters(means=means, weights=weights,
