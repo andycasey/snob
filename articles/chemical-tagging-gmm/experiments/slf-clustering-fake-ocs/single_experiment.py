@@ -6,28 +6,36 @@ Simplest SLF model.
 import numpy as np
 import matplotlib.pyplot as plt
 
-from snob.slf_mixture.single import SLFModel 
+from snob.slf_mixture.single import SLFModel, _message_length 
 
 random_seed = 42
-np.random.seed(42)
+np.random.seed(random_seed)
 
 # Generate some data.
-D = 2
+D = 5
 N = 500
+load_magnitude = 5
 
 means = np.random.uniform(low=-1, high=1, size=D)
-factor_scores = np.random.normal(0, size=N).reshape((N, 1))
-factor_loads = np.random.uniform(low=-10, high=10, size=D).reshape((1, D))
-specific_variances = np.random.normal(0, 0.5, size=D)**2
+specific_sigmas = np.abs(np.random.normal(0, 0.15, size=D))
 variates = np.random.normal(0, 1, size=(N, D))
+factor_loads = np.random.uniform(
+    low=-load_magnitude, high=+load_magnitude, size=D).reshape((1, D))
+factor_scores = np.random.normal(0, 1, size=N).reshape((N, 1))
 
-X = means + np.dot(factor_scores, factor_loads) + specific_variances * variates
+
+X = means + np.dot(factor_scores, factor_loads) + specific_sigmas * variates
 
 fig, ax = plt.subplots()
 ax.scatter(X.T[0], X.T[1])
 
 
 mml_mod = SLFModel()
+mml_mod.truths = dict(
+    means=means,
+    factor_loads=factor_loads,
+    factor_scores=factor_scores,
+    specific_variances=specific_sigmas**2)
 mml_mod.fit(X)
 
 
@@ -61,12 +69,13 @@ ax.set_title('means')
 
 
 fig, ax = plt.subplots()
-ax.scatter(specific_variances**0.5, mml_mod.specific_variances**0.5)
+ax.scatter(specific_sigmas, mml_mod.specific_variances**0.5)
 _common_limits(ax)
 ax.set_title('specific_sigmas')
 
-
-
+# Test against truth.
+I_inferred, inferred_comps = mml_mod.message_length(X, full_output=True)
+I_truth, truth_comps = _message_length(X, means, factor_scores, factor_loads, specific_sigmas**2, full_output=True)
 
 raise a
 

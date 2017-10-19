@@ -25,6 +25,8 @@ class MMLMixtureModel(BaseMixtureModel):
         Return approximate factor scores for each object, based on the
         responsibility matrix.
         """
+
+        return self._factor_scores
         return np.dot(self._responsibility.T, self.cluster_factor_scores.T)
 
 
@@ -45,6 +47,7 @@ class MMLMixtureModel(BaseMixtureModel):
         # single mean for the entire sample, not the cluster means!
         # TODO REVISIT TERMINOLOGY
         means = np.mean(data, axis=0)
+        means = np.zeros(D)
         
         w = data - means
         V = np.dot(w.T, w)
@@ -57,13 +60,13 @@ class MMLMixtureModel(BaseMixtureModel):
         # Iterate as per Wallace & Freeman first.
         for iteration in range(self.max_em_iterations):
 
-            beta, specific_variances, change \
-                = _iterate_wallace_freeman_1990(beta, N, D, V)
+            beta, specific_variances, l1_norm = _iterate_wallace_freeman_1990(
+                beta, N, D, V)
 
-            logger.debug("initialize_parameters: {} {}".format(iteration, change))
+            logger.debug("initialize_parameters: {} {}".format(iteration, l1_norm))
 
             # HACK TODO MAGIC:
-            if change is None or change < 1e-10:
+            if l1_norm is None or l1_norm < 1e-10:
                 break
 
         specific_sigmas = specific_variances**0.5
@@ -103,13 +106,15 @@ class MMLMixtureModel(BaseMixtureModel):
         ax.scatter(data.T[0], data.T[1], c=responsibility[0], zorder=-1)
 
         colors = "br"
-        for i in range(2):
+        for i in range(self.num_components):
             y = means + np.dot(cluster_factor_scores.flatten()[i], factor_loads)
             ax.scatter(y.T[0], y.T[1], c=colors[i])
+
 
         # Set the parameters.
         return self.set_parameters(means=means, weights=weights,
             factor_loads=factor_loads, 
+            factor_scores=factor_scores,
             cluster_factor_scores=cluster_factor_scores, 
             specific_variances=specific_variances)
 
@@ -162,10 +167,10 @@ class MMLMixtureModel(BaseMixtureModel):
         w = data - self.means
         V = np.dot(w.T, w)
         
-        beta, specific_variances, change = _iterate_wallace_freeman_1990(
+        beta, specific_variances, l1_norm = _iterate_wallace_freeman_1990(
             (self.factor_loads * self.specific_variances**(-0.5)).T, N, D, V)
             
-        logger.debug("_aecm_step_2 change: {}".format(change))
+        logger.debug("_aecm_step_2 l1_norm: {}".format(l1_norm))
 
         specific_sigmas = specific_variances**0.5
         factor_loads = specific_sigmas * beta
@@ -183,6 +188,7 @@ class MMLMixtureModel(BaseMixtureModel):
         return self.set_parameters(
             factor_loads=factor_loads,
             specific_variances=specific_variances,
+            factor_scores=factor_scores,
             cluster_factor_scores=cluster_factor_scores)
 
 
@@ -238,13 +244,14 @@ class MMLMixtureModel(BaseMixtureModel):
                  - scipy.special.gammaln(K)
 
         # I_1 is as per page 299 of Wallace et al. (2005).
-        _factor_scores = np.dot(self._responsibility.T, self.cluster_factor_scores.T)
+
+        #_factor_scores = np.dot(self._responsibility.T, self.cluster_factor_scores.T)
 
 
-        residual = y - self.means - np.dot(_factor_scores, self.factor_loads)
+        residual = y - self.means - np.dot(self.approximate_factor_scores, self.factor_loads)
 
-        S = np.sum(_factor_scores)
-        v_sq = np.sum(_factor_scores**2)
+        S = np.sum(self.approximate_factor_scores)
+        v_sq = np.sum(self.approximate_factor_scores**2)
         specific_sigmas = np.sqrt(self.specific_variances)
         
         b_sq = np.sum((self.factor_loads/specific_sigmas)**2)
@@ -318,12 +325,12 @@ def _iterate_wallace_freeman_1990(beta, N, D, V):
              / ((N - 1.0) * (1.0 + b_squared))
 
     # If \Beta_new \approx \Beta then exit.
-    sum_l2 = np.sum((beta - beta_new)**2)
+    l1_norm = np.abs(beta - beta_new).sum()
 
-    if not np.isfinite(sum_l2):
-        raise wtf
+    if not np.isfinite(l1_norm):
+        raise ValueError("l1_norm in _iterate_wallace_freeman_1990 is not finite")
 
-    return (beta_new, specific_variances, sum_l2)
+    return (beta_new, specific_variances, l1_norm)
 
 
 def log_kappa(D):

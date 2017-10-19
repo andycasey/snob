@@ -39,13 +39,11 @@ class BaseMixtureModel(object):
         options are: ``kmeans``, and ``random`` (default: ``kmeans``).
     """
 
-    parameter_names = ("factor_loads", "cluster_factor_scores",
-        "specific_variances", "means", "weights")
+    parameter_names = ("cluster_factor_scores", "factor_scores",
+        "factor_loads", "specific_variances", "means", "weights")
 
-    def __init__(self, truth, num_components, threshold=1e-8, max_em_iterations=10000,
+    def __init__(self, num_components, threshold=1e-8, max_em_iterations=10000,
         initialization_method="kmeans++", **kwargs):
-
-        self.truth = truth
 
         num_components = int(num_components)
         if 1 > num_components:
@@ -102,7 +100,7 @@ class BaseMixtureModel(object):
     @property
     def factor_scores(self):
         r"""
-        Return the factor scores, :math:`v_n`.
+        Return the factor scores, :math:`a_k`.
         """
         return self._factor_scores
 
@@ -114,6 +112,15 @@ class BaseMixtureModel(object):
         :math:`v_k`.
         """
         return self._cluster_factor_scores
+
+
+    @property
+    def cluster_factor_score_variances(self):
+        r"""
+        Return the variance in the factor scores for each :math:`k`-th cluster.
+        """
+        return self._cluster_factor_score_variances
+
 
     @property
     def specific_variances(self):
@@ -134,14 +141,17 @@ class BaseMixtureModel(object):
                 value = value if value is None else np.atleast_2d(value)
                 
                 existing_value = getattr(self, pn, None)
-                try:
-                    true_value = self.truth[parameter_name]
-                except:
-                    if parameter_name == "cluster_factor_scores":
-                        true_value = np.unique(self.truth["factor_scores"])
-                    else:
-                        raise
-                    
+                if hasattr(self, "truth"):
+                    try:
+                        true_value = self.truth[parameter_name]
+                    except:
+                        if parameter_name == "cluster_factor_scores":
+                            true_value = np.unique(self.truth["factor_scores"])
+                        else:
+                            raise
+                else:
+                    true_value = None
+                        
                 setattr(self, pn, value)
 
                 
@@ -242,7 +252,7 @@ class BaseMixtureModel(object):
 
         N, D = data.shape
         colors = "br"
-        for i in range(D):
+        for i in range(self.num_components):
             foo = self.means + np.dot(self.cluster_factor_scores.flatten()[i], self.factor_loads)
             ax.scatter(foo.T[0], foo.T[1], facecolor=colors[i])
 
@@ -251,7 +261,6 @@ class BaseMixtureModel(object):
         transformed = data - self.means - np.dot(self.approximate_factor_scores, self.factor_loads)
         ax.scatter(transformed.T[0], transformed.T[1], c=responsibility[0])
 
-        raise a
         return self
 
 
@@ -317,7 +326,7 @@ class BaseMixtureModel(object):
             the number of dimensions per observation.
         """
         return _estimate_log_latent_factor_prob(
-            data, self.factor_loads, self.cluster_factor_scores, 
+            data, self.factor_loads, self.approximate_factor_scores, 
             self.specific_variances, self.means)
 
 
@@ -346,12 +355,12 @@ def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
     #colors = "br"
 
     log_prob = np.empty((N, K))
-    for k, factor_scores in enumerate(cluster_factor_scores.T):
-        squared_diff = (data - mean - np.dot(factor_scores, factor_loads))**2
-        log_prob[:, k] = np.sum(squared_diff / specific_variances, axis=1)
+    #for k, factor_scores in enumerate(cluster_factor_scores.T):
+    #    squared_diff = (data - mean - np.dot(factor_scores, factor_loads))**2
+    #    log_prob[:, k] = np.sum(squared_diff / specific_variances, axis=1)
 
-        #foo = mean + np.dot(factor_scores, factor_loads)
-        #ax.scatter(foo.T[0], foo.T[1], facecolor=colors[k], alpha=0.5)
+    squared_diff = (data - mean - np.dot(cluster_factor_scores, factor_loads))**2
+    log_prob[:, 0] = np.sum(squared_diff / specific_variances, axis=1)
 
 
     #raise a

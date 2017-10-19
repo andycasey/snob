@@ -54,14 +54,6 @@ class SLFModel(object):
 
 
     @property
-    def weights(self):
-        r"""
-        Return the mixture weights, :math:`\w_k`.
-        """
-        return self._weights
-
-
-    @property
     def factor_loads(self):
         r"""
         Return the factor loads, :math:`a_k`.
@@ -97,7 +89,10 @@ class SLFModel(object):
 
                 setattr(self, pn, value)
 
-                logger.debug("set_parameters: {} {}".format(pn, value))
+                if parameter_name == "specific_variances" and value is not None:
+                    logger.debug("specific_sigmas: {}".format(np.sqrt(value)))
+
+                #logger.debug("set_parameters: {} {}".format(pn, value))
 
             else:
                 raise ValueError("unknown parameter '{}'".format(parameter_name))
@@ -132,11 +127,17 @@ class SLFModel(object):
         beta = v[0] * np.sqrt(s[0])
 
         I = []
+        I2 = []
+        I3 = []
+
         # Iterate as per Wallace & Freeman first.
         for iteration in range(self.max_em_iterations):
 
-            beta, change = self._iterate_and_update(beta, w, N, D, V)
+            beta, change = self._iterate_and_update(beta, w, N, D, V, data)
             I.append(self.message_length(data))
+            I2.append(_message_length(data, self.means, self.factor_scores,
+                self.factor_loads, self.truths["specific_variances"]))
+            I3.append(_message_length(data, **self.truths))
 
             logger.debug("initialize_parameters: {} {}".format(iteration, change))
 
@@ -144,9 +145,13 @@ class SLFModel(object):
             if change is None or change < 1e-10:
                 break
 
+        # Update new specific variances?
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
-        ax.plot(I)
+        ax.plot(I, label="I")
+        ax.plot(I2, label="I2")
+        ax.plot(I3, label="truths")
+        plt.legend()
         
         return True
 
@@ -190,14 +195,8 @@ class SLFModel(object):
             and the log of the responsibility matrix.
         """
 
-        log_prob = self._estimate_log_prob(data).reshape((data.shape[0], 1))
-
-        log_likelihood = scipy.misc.logsumexp(log_prob, axis=1)
-        with np.errstate(under="ignore"):
-            # Ignore underflow errors.
-            log_resp = log_prob - log_likelihood[:, np.newaxis]
-
-        responsibility = np.exp(log_resp).T
+        log_likelihood = self._estimate_log_prob(data)
+        responsibility = None
         
         # Store the responsibility matrix because it is helpful to use later on
         self._responsibility = responsibility
@@ -224,7 +223,7 @@ class SLFModel(object):
 
 
 
-    def message_length(self, y, yerr=0.001, full_output=False):
+    def message_length(self, y, full_output=False):
         r"""
         Return the approximate message length of the model and the data,
         in units of bits.
@@ -249,74 +248,22 @@ class SLFModel(object):
         :returns:
             The total message length in units of bits.
         """
-        
-        yerr = np.array(yerr)
-        if yerr.size == 1:
-            yerr = yerr * np.ones_like(y)
-        elif yerr.shape != y.shape:
-            raise ValueError("shape mismatch")
 
-        responsibility, log_likelihood = self._expectation(y)
-
-        K, N = responsibility.shape
-        N, D = y.shape
-
-        I = dict()
-
-        # Encode the number of clusters, K.
-        #   I(K) = K\log{2} + constant # [nats]
-        I["I_k"] = K * np.log(2) # [nats]
-
-        # Encode the relative weights for all K clusters.
-        #   I(w) = \frac{(K - 1)}{2}\log{N} - \frac{1}{2}\sum_{j=1}^{K}\log{w_j} - \log{(K - 1)!} # [nats]
-        # Recall: \log{(K-1)!} = \log{|\Gamma(K)|}
-
-        # I_1 is as per page 299 of Wallace et al. (2005).
-
-        #_factor_scores = np.dot(self._responsibility.T, self.cluster_factor_scores.T)
+        return _message_length(
+            y, self.means, self.factor_scores, self.factor_loads,
+            self.specific_variances, full_output=full_output)
 
 
-        residual = y - self.means - np.dot(self.factor_scores, self.factor_loads)
-
-        S = np.sum(self.factor_scores)
-        v_sq = np.sum(self.factor_scores**2)
-        specific_sigmas = np.sqrt(self.specific_variances)
-        
-        b_sq = np.sum((self.factor_loads/specific_sigmas)**2)
-
-        I["I_sigmas"] = (N - 1) * np.sum(np.log(specific_sigmas))
-        I["I_a"] = 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq))
-        if not np.isfinite(I["I_a"]):
-            raise a
-        I["I_b"] = 0.5 * v_sq 
-        I["I_c"] = 0.5 * np.sum(residual**2/self.specific_variances)
-
-        #I["lattice"] = 0.5 * N_free_params * log_kappa(N_free_params) 
-        #I["constant"] = 0.5 * N_free_params
-
-        I_total = np.hstack(I.values()).sum() / np.log(2) # [bits]
-
-        print(I)
-        print(np.median(residual), self.specific_variances**0.5)
-
-        if not full_output:
-            return I_total
-
-        for key in I.keys():
-            I[key] /= np.log(2) # [bits]
-
-        return (I_total, I)
-
-
-    def _iterate_and_update(self, beta, w, N, D, V):
+    def _iterate_and_update(self, beta, w, N, D, V, data):
 
         beta, specific_variances, change = self._iterate_wf90(beta, N, D, V)
 
-        specific_sigmas = specific_variances**0.5
-        factor_loads = specific_sigmas * beta
+        factor_loads = np.sqrt(specific_variances) * beta
         b_sq = np.sum(beta**2)
-        factor_scores = np.dot(w/specific_sigmas, beta) \
-                      * ((1.0 - D/((N - 1.0) * b_sq)) / (1 + b_sq))
+        #factor_scores = np.dot(w/specific_sigmas, beta) \
+        #              * ((1.0 - D/((N - 1.0) * b_sq)) / (1 + b_sq))
+        factor_scores = np.dot(data, beta) \
+                      * ((1.0 - D/(N - 1.0) * b_sq) / (1 + b_sq))
         factor_scores = np.atleast_2d(factor_scores).T
 
         self.set_parameters(
@@ -336,18 +283,20 @@ class SLFModel(object):
         lhs = (N - 1.0) * b_squared
         if lhs <= D:
             logger.warn("Setting \Beta_k = 0 as {} <= {}".format(lhs, D))
-            beta = np.zeros(D)
+            beta, b_squared = (np.zeros(D), 0)
 
         # Compute specific variances according to:
         #   \sigma_k^2 = \frac{\sum_{n}w_{nk}^2}{(N-1)(1 + \Beta_k^2)}
         # (If \Beta = 0, exit)
+
+        # Discrepancy between Wallace (2005) and Wallace and Freeman (1992) here
+        # as to whether this should be \beta_k^2 or b^2
         specific_variances = np.diag(V) / ((N - 1.0) * (1.0 + beta**2))
+
         assert specific_variances.size == D
 
         if np.all(beta == 0):
             logger.warn("Exiting step (b) of scheme in initialisation")
-
-
             return (beta, specific_variances, None)
 
         # Compute Y using 
@@ -383,9 +332,6 @@ class SLFModel(object):
 
 
 
-
-
-
 def _estimate_log_latent_factor_prob(data, factor_loads, factor_scores,
     specific_variances, mean):
 
@@ -398,12 +344,55 @@ def _estimate_log_latent_factor_prob(data, factor_loads, factor_scores,
     # K = number of clusters.
 
     squared_diff = (data - mean - np.dot(factor_scores, factor_loads))**2
-    log_prob = np.sum(squared_diff / specific_variances, axis=1)
+    log_prob = np.sum(squared_diff / specific_variances)
     
     assert np.isfinite(log_prob).all()
 
-    return - 0.5 * D * N * np.log(2 * np.pi) \
-           - N * np.sum(np.log(specific_variances)) \
-           - 0.5 * log_prob
+    nll = 0.5 * D * N * np.log(2 * np.pi) \
+        + N * np.sum(np.log(np.sqrt(specific_variances))) \
+        + 0.5 * log_prob
+    return -nll
+
+
+def _message_length(y, means, factor_scores, factor_loads, specific_variances,
+    yerr=0.001, full_output=False):
+
+    N, D = y.shape
+
+    yerr = np.array(yerr)
+    if yerr.size == 1:
+        yerr = yerr * np.ones_like(y)
+    elif yerr.shape != y.shape:
+        raise ValueError("shape mismatch")
+
+    N, D = y.shape
+
+    v_sq = np.sum(factor_scores**2)
+    b_sq = np.sum(factor_loads**2 / specific_variances)
+    S = np.sum(factor_scores)
+
+    residual = y - means - np.dot(factor_scores, factor_loads)
+
+    I = {
+        "L1": (N - 1.0) * np.sum(np.log(np.sqrt(specific_variances))),
+        "L2": 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq)),
+        "L3": 0.5 * (v_sq + np.sum((residual)**2 / specific_variances))
+    }
+
+    #I["lattice"] = 0.5 * N_free_params * log_kappa(N_free_params) 
+    #I["constant"] = 0.5 * N_free_params
+
+    I_total = np.hstack(I.values()).sum() / np.log(2) # [bits]
+
+    print(I)
+    
+    if not full_output:
+        return I_total
+
+    for key in I.keys():
+        I[key] /= np.log(2) # [bits]
+
+    return (I_total, I)
+
 
 
