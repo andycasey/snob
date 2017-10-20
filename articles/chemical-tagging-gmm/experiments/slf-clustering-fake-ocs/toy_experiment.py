@@ -34,9 +34,34 @@ K_clusters_total = len(set(catalog["cluster_id"]))
 #X = X[keep]
 
 
-mml_mod = MMLMixtureModel(gp, num_components=2, initialization_method="random")
-#mml_mod.truth = gp
+mml_mod = MMLMixtureModel(num_components=1, initialization_method="kmeans++")
 mml_mod.fit(X)
+
+
+def _common_limits(ax):
+    limits = np.array([ax.get_xlim(), ax.get_ylim()])
+    limits = (np.min(limits), np.max(limits))
+
+    ax.plot(limits, limits, c="#666666", lw=1, linestyle=":", zorder=-1)
+
+    ax.set_xlim(limits)
+    ax.set_ylim(limits)
+
+
+fig, ax = plt.subplots()
+ax.scatter(gp["factor_loads"], mml_mod.factor_loads)
+_common_limits(ax)
+ax.set_title('factor loads')
+
+
+fig, ax = plt.subplots()
+ax.scatter(gp["factor_scores"], mml_mod.approximate_factor_scores)
+_common_limits(ax)
+ax.set_title('factor scores')
+
+raise a
+
+
 
 
 #ml_mod = MLMixtureModel(num_components=2)

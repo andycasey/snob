@@ -10,7 +10,7 @@ __all__ = ["MMLMixtureModel"]
 import logging
 import numpy as np
 import scipy
-from sklearn import (cluster, decomposition)
+from sklearn import cluster
 
 from .base import BaseMixtureModel
 
@@ -18,16 +18,6 @@ logger = logging.getLogger("snob")
 
 
 class MMLMixtureModel(BaseMixtureModel):
-
-    @property
-    def approximate_factor_scores(self):
-        """
-        Return approximate factor scores for each object, based on the
-        responsibility matrix.
-        """
-
-        return self._factor_scores
-        return np.dot(self._responsibility.T, self.cluster_factor_scores.T)
 
 
     def initialize_parameters(self, data, **kwargs):
@@ -42,14 +32,14 @@ class MMLMixtureModel(BaseMixtureModel):
 
         # Estimate the latent factor first.
         N, D = data.shape
+        K = self.num_components
 
         # Excuse the terminology problem here, but means here refers to the 
         # single mean for the entire sample, not the cluster means!
         # TODO REVISIT TERMINOLOGY
-        means = np.mean(data, axis=0)
-        means = np.zeros(D)
+        self.set_parameters(means=np.mean(data, axis=0))
         
-        w = data - means
+        w = data - self.means
         V = np.dot(w.T, w)
         
         # Set \beta as the dominant eigenvector of the correlation matrix with
@@ -58,37 +48,32 @@ class MMLMixtureModel(BaseMixtureModel):
         beta = v[0] * np.sqrt(s[0])
 
         # Iterate as per Wallace & Freeman first.
-        for iteration in range(self.max_em_iterations):
+        for i in range(self.max_em_iterations):
+            beta, specific_variances, change = self._iterate_wf90(beta, V, N, D)
 
-            beta, specific_variances, l1_norm = _iterate_wallace_freeman_1990(
-                beta, N, D, V)
+            logger.debug("initialize_parameters: {} {}".format(i, change))
+            if change is None or change < self.threshold: break
+        
 
-            logger.debug("initialize_parameters: {} {}".format(iteration, l1_norm))
-
-            # HACK TODO MAGIC:
-            if l1_norm is None or l1_norm < 1e-10:
-                break
-
-        specific_sigmas = specific_variances**0.5
-        factor_loads = specific_sigmas * beta
-
+        factor_loads = (np.sqrt(specific_variances) * beta).reshape((1, D))
         b_sq = np.sum(beta**2)
-        factor_scores = np.dot(w/specific_sigmas, beta) \
-                      * ((1.0 - D/((N - 1.0) * b_sq)) / (1 + b_sq))
+        #factor_scores = np.dot(w/specific_sigmas, beta) \
+        #              * ((1.0 - D/((N - 1.0) * b_sq)) / (1 + b_sq))
+        factor_scores = np.dot(data, beta) \
+                      * ((1.0 - D/(N - 1.0) * b_sq) / (1 + b_sq))
         factor_scores = np.atleast_2d(factor_scores).T
 
         # Do initial clustering on the factor scores.
-        responsibility = np.zeros((self.num_components, N))
+        responsibility = np.zeros((K, N))
            
         if self.initialization_method == "kmeans++":
             # Assign cluster memberships using k-means++.
-            kmeans = cluster.KMeans(
-                n_clusters=self.num_components, n_init=1, **kwargs)
+            kmeans = cluster.KMeans(n_clusters=K, n_init=1, **kwargs)
             assignments = kmeans.fit(factor_scores).labels_
             
         elif self.initialization_method == "random":
             # Randomly assign points.
-            assignments = np.random.randint(0, self.num_components, size=N)
+            assignments = np.random.randint(0, K, size=N)
 
         responsibility[assignments, np.arange(N)] = 1.0
 
@@ -98,25 +83,37 @@ class MMLMixtureModel(BaseMixtureModel):
 
         # We need to initialise the factor scores to be of K clusters.
         # TODO: Revisit this whether this should be effective_membership > 1
-        cluster_factor_scores = np.dot(factor_scores.T, responsibility.T) \
-                              / (effective_membership - 1)
+        cluster_factor_score_means = (np.dot(factor_scores.T, responsibility.T) \
+                                   / (effective_membership - 1))
+        cluster_factor_score_means = cluster_factor_score_means.T
+        
+        covs = np.zeros((K, D, D))
 
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        ax.scatter(data.T[0], data.T[1], c=responsibility[0], zorder=-1)
+        # Initialise the sigmas
+        for k in range(K):
 
-        colors = "br"
-        for i in range(self.num_components):
-            y = means + np.dot(cluster_factor_scores.flatten()[i], factor_loads)
-            ax.scatter(y.T[0], y.T[1], c=colors[i])
+            factor_scores = cluster_factor_score_means[k] * np.ones((N, 1))
+            residual = (data - self.means - np.dot(factor_scores, factor_loads))
+            covs[k] = np.dot(responsibility[k] * residual.T, residual) \
+                    / (effective_membership[k] - 1)
+            
+        # let's estimate the intrinsic specific variances
+        variances = np.array([np.diag(cov) for cov in covs])
 
+        specific_variances = np.min(variances, axis=0)/2.0
+        cluster_variances = variances - specific_variances
+
+        # TODO: no idea if this variance stuff is right,.....
+        cluster_factor_score_variances \
+            = np.mean(cluster_variances/(factor_loads**2), axis=1).reshape((K, 1))
 
         # Set the parameters.
-        return self.set_parameters(means=means, weights=weights,
+        self.set_parameters(
+            weights=weights,
             factor_loads=factor_loads, 
-            factor_scores=factor_scores,
-            cluster_factor_scores=cluster_factor_scores, 
-            specific_variances=specific_variances)
+            specific_variances=specific_variances,
+            cluster_factor_score_means=cluster_factor_score_means,
+            cluster_factor_score_variances=cluster_factor_score_variances)
 
     
     def _aecm_step_1(self, data, responsibility):
@@ -194,143 +191,66 @@ class MMLMixtureModel(BaseMixtureModel):
 
 
     def message_length(self, y, yerr=0.001, full_output=False):
-        r"""
-        Return the approximate message length of the model and the data,
-        in units of bits.
-
-        # TODO: Document in full, the equations used here for each message
-        #       component.
-
-        :param y:
-            A :math:`N\times{}D` array of the observations :math:`y`,
-            where :math:`N` is the number of observations, and :math:`D` is
-            the number of dimensions per observation.
-
-        :param yerr: [optional]
-            The 1:math:`\sigma` uncertainties on the data values :math:`y`.
-            This can be given as a :math:`N\times{}D` array, or as a float
-            value for all observations in all dimensions (default: ``0.001``).
-
-        :param full_output: [optional]
-            If ``True``, the total message length is returned, as well as a
-            dictionary with the message lengths of the individual components.
-
-        :returns:
-            The total message length in units of bits.
-        """
+        return None
         
-        yerr = np.array(yerr)
-        if yerr.size == 1:
-            yerr = yerr * np.ones_like(y)
-        elif yerr.shape != y.shape:
-            raise ValueError("shape mismatch")
-
-        responsibility, log_likelihood = self._expectation(y)
-
-        K, N = responsibility.shape
-        N, D = y.shape
-
-        I = dict()
-
-        # Encode the number of clusters, K.
-        #   I(K) = K\log{2} + constant # [nats]
-        I["I_k"] = K * np.log(2) # [nats]
-
-        # Encode the relative weights for all K clusters.
-        #   I(w) = \frac{(K - 1)}{2}\log{N} - \frac{1}{2}\sum_{j=1}^{K}\log{w_j} - \log{(K - 1)!} # [nats]
-        # Recall: \log{(K-1)!} = \log{|\Gamma(K)|}
-        I["I_w"] = (K - 1) / 2.0 * np.log(N) \
-                 - 0.5 * np.sum(np.log(self.weights)) \
-                 - scipy.special.gammaln(K)
-
-        # I_1 is as per page 299 of Wallace et al. (2005).
-
-        #_factor_scores = np.dot(self._responsibility.T, self.cluster_factor_scores.T)
 
 
-        residual = y - self.means - np.dot(self.approximate_factor_scores, self.factor_loads)
+    def _iterate_wf90(self, beta, V, N, D):
 
-        S = np.sum(self.approximate_factor_scores)
-        v_sq = np.sum(self.approximate_factor_scores**2)
-        specific_sigmas = np.sqrt(self.specific_variances)
-        
-        b_sq = np.sum((self.factor_loads/specific_sigmas)**2)
+        beta = beta.reshape((D, ))
 
-        I["I_sigmas"] = (N - 1) * np.sum(np.log(specific_sigmas))
-        I["I_a"] = 0.5 * (D * np.log(N * v_sq - S**2) + (N + D - 1) * np.log(1 + b_sq))
-        if not np.isfinite(I["I_a"]):
-            raise a
-        I["I_b"] = 0.5 * v_sq 
-        I["I_c"] = 0.5 * np.sum(residual**2/self.specific_variances)
+        b_squared = np.sum(beta**2)
 
-        #I["lattice"] = 0.5 * N_free_params * log_kappa(N_free_params) 
-        #I["constant"] = 0.5 * N_free_params
+        lhs = (N - 1.0) * b_squared
+        if lhs <= D:
+            logger.warn("Setting \Beta_k = 0 as {} <= {}".format(lhs, D))
+            beta, b_squared = (np.zeros(D), 0)
 
-        I_total = np.hstack(I.values()).sum() / np.log(2) # [bits]
+        # Compute specific variances according to:
+        #   \sigma_k^2 = \frac{\sum_{n}w_{nk}^2}{(N-1)(1 + \Beta_k^2)}
+        # (If \Beta = 0, exit)
 
-        print(I)
-        print(np.median(residual), self.specific_variances**0.5)
+        # Discrepancy between Wallace (2005) and Wallace and Freeman (1992) here
+        # as to whether this should be \beta_k^2 or b^2
+        specific_variances = np.diag(V) / ((N - 1.0) * (1.0 + beta**2))
 
-        if not full_output:
-            return I_total
+        assert specific_variances.size == D
 
-        for key in I.keys():
-            I[key] /= np.log(2) # [bits]
+        if np.all(beta == 0):
+            logger.warn("Exiting step (b) of scheme in initialisation")
+            return (beta, specific_variances, None)
 
-        return (I_total, I)
+        # Compute Y using 
+        #   Y_{kj} = V_{kj}/\sigma_{k}\sigma_{j}
+        # which is Wallace & Freeman nomenclature. In our nomenclature
+        # that is:
+        #   Y_{ij} = V_{ij}/\sigma_{i}\sigma_{j}
 
+        specific_sigmas = np.atleast_2d(specific_variances**0.5)
+        Y = V / np.dot(specific_sigmas.T, specific_sigmas)
 
-def _iterate_wallace_freeman_1990(beta, N, D, V):
+        # Compute an updated estimate of \beta as:
+        #   \Beta_{new} = \frac{Y\Beta(1-K/(N-1)b^2)}{(N - 1)(1 + b^2)}
+        # which is Wallace & Freeman nomenclature. In our nomenclature
+        # that is:
+        #   \Beta_{new} = \frac{Y\Beta(1-D/(N - 1)b^2)}{(N - 1)(1 + b^2)}
 
-    beta = beta.reshape((D, ))
+        # Where you will recall (in our nomenclature)
+        #   b^2 = \sum_{D} b_d^2
+        # And b_{d} = a_{d}/\sigma_{d}
 
-    b_squared = np.sum(beta**2)
+        b_squared = np.sum(beta**2)
+        beta_new = (np.dot(Y, beta) * (1.0 - D/(N - 1.0) * b_squared)) \
+                 / ((N - 1.0) * (1.0 + b_squared))
 
-    lhs = (N - 1.0) * b_squared
-    if lhs <= D:
-        logger.warn("Setting \Beta_k = 0 as {} <= {}".format(lhs, D))
-        beta = np.zeros(D)
+        # If \Beta_new \approx \Beta then exit.
+        l1_norm = np.abs(beta - beta_new).sum()
 
-    # Compute specific variances according to:
-    #   \sigma_k^2 = \frac{\sum_{n}w_{nk}^2}{(N-1)(1 + \Beta_k^2)}
-    # (If \Beta = 0, exit)
-    specific_variances = np.diag(V) / ((N - 1.0) * (1.0 + beta**2))
-    assert specific_variances.size == D
+        if not np.isfinite(l1_norm):
+            raise ValueError("l1_norm in _iterate_wallace_freeman_1990 is not finite")
 
-    if np.all(beta == 0):
-        logger.warn("Exiting step (b) of scheme in initialisation")
-        return (beta, specific_variances, None)
+        return (beta_new, specific_variances, l1_norm)
 
-    # Compute Y using 
-    #   Y_{kj} = V_{kj}/\sigma_{k}\sigma_{j}
-    # which is Wallace & Freeman nomenclature. In our nomenclature
-    # that is:
-    #   Y_{ij} = V_{ij}/\sigma_{i}\sigma_{j}
-
-    specific_sigmas = np.atleast_2d(specific_variances**0.5)
-    Y = V / np.dot(specific_sigmas.T, specific_sigmas)
-
-    # Compute an updated estimate of \beta as:
-    #   \Beta_{new} = \frac{Y\Beta(1-K/(N-1)b^2)}{(N - 1)(1 + b^2)}
-    # which is Wallace & Freeman nomenclature. In our nomenclature
-    # that is:
-    #   \Beta_{new} = \frac{Y\Beta(1-D/(N - 1)b^2)}{(N - 1)(1 + b^2)}
-
-    # Where you will recall (in our nomenclature)
-    #   b^2 = \sum_{D} b_d^2
-    # And b_{d} = a_{d}/\sigma_{d}
-
-    b_squared = np.sum(beta**2)
-    beta_new = (np.dot(Y, beta) * (1.0 - D/(N - 1.0) * b_squared)) \
-             / ((N - 1.0) * (1.0 + b_squared))
-
-    # If \Beta_new \approx \Beta then exit.
-    l1_norm = np.abs(beta - beta_new).sum()
-
-    if not np.isfinite(l1_norm):
-        raise ValueError("l1_norm in _iterate_wallace_freeman_1990 is not finite")
-
-    return (beta_new, specific_variances, l1_norm)
 
 
 def log_kappa(D):

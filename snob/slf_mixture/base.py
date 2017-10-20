@@ -39,8 +39,8 @@ class BaseMixtureModel(object):
         options are: ``kmeans``, and ``random`` (default: ``kmeans``).
     """
 
-    parameter_names = ("cluster_factor_scores", "factor_scores",
-        "factor_loads", "specific_variances", "means", "weights")
+    parameter_names = ("means", "specific_variances", "weights", "factor_loads",
+        "cluster_factor_score_means", "cluster_factor_score_variances")
 
     def __init__(self, num_components, threshold=1e-8, max_em_iterations=10000,
         initialization_method="kmeans++", **kwargs):
@@ -82,6 +82,14 @@ class BaseMixtureModel(object):
 
 
     @property
+    def specific_variances(self):
+        r"""
+        Return the specific variances, :math:`\sigma_k^2`.
+        """
+        return self._specific_variances
+
+
+    @property
     def weights(self):
         r"""
         Return the mixture weights, :math:`\w_k`.
@@ -98,20 +106,12 @@ class BaseMixtureModel(object):
 
 
     @property
-    def factor_scores(self):
-        r"""
-        Return the factor scores, :math:`a_k`.
-        """
-        return self._factor_scores
-
-
-    @property
-    def cluster_factor_scores(self):
+    def cluster_factor_score_means(self):
         r"""
         Return the mean factor scores for each :math:`k`-th cluster,
         :math:`v_k`.
         """
-        return self._cluster_factor_scores
+        return self._cluster_factor_score_means
 
 
     @property
@@ -120,14 +120,6 @@ class BaseMixtureModel(object):
         Return the variance in the factor scores for each :math:`k`-th cluster.
         """
         return self._cluster_factor_score_variances
-
-
-    @property
-    def specific_variances(self):
-        r"""
-        Return the specific variances, :math:`\sigma_k^2`.
-        """
-        return self._specific_variances
 
 
     def set_parameters(self, **kwargs):
@@ -139,52 +131,12 @@ class BaseMixtureModel(object):
             if parameter_name in self.parameter_names:
                 pn = "_{}".format(parameter_name)
                 value = value if value is None else np.atleast_2d(value)
-                
-                existing_value = getattr(self, pn, None)
-                if hasattr(self, "truth"):
-                    try:
-                        true_value = self.truth[parameter_name]
-                    except:
-                        if parameter_name == "cluster_factor_scores":
-                            true_value = np.unique(self.truth["factor_scores"])
-                        else:
-                            raise
-                else:
-                    true_value = None
-                        
                 setattr(self, pn, value)
 
-                
-                if true_value is not None and existing_value is not None:
-                    diff_before = np.sum(np.abs(existing_value - value))
-                    diff_now = np.sum(np.abs(true_value - value))
-
-                    logger.debug("set_parameters: {} {} (before: {}; truth {}) diffs (before: {}; now: {}) {}".format(
-                        parameter_name, value, existing_value, true_value, diff_before, diff_now, "GOOD" if diff_now < diff_before else "BAD"))
-
-
-                else:
-
-
-                    if parameter_name == "specific_variances" and value is not None:
-                        logger.debug("set_parameters: {} {} (specific_sigmas from {} to {})".format(
-                            parameter_name, value, np.sqrt(existing_value) if existing_value is not None else None, np.sqrt(value)))
-                    else:
-                        logger.debug("set_parameters: {} from {} to {}".format(
-                            parameter_name, existing_value, value))
-
             else:
-                raise ValueError("unknown parameter '{}'".format(parameter_name))
+                raise ValueError("unknown parameter {}".format(parameter_name))
 
         return True
-
-
-    def _aecm_step_1(self, *args, **kwargs):
-        raise NotImplementedError("this must be implemented by sub-classes")
-
-
-    def _aecm_step_2(self, *args, **kwargs):
-        raise NotImplementedError("this must be implemented by sub-classes")
 
 
     def fit(self, data, **kwargs):
@@ -206,6 +158,8 @@ class BaseMixtureModel(object):
 
         results = [log_likelihood.sum()]
         I = [self.message_length(data)]
+
+        raise a
 
         logger.debug("fit: initial ll/I: {} {}".format(results[0], I[0]))
 
@@ -252,7 +206,7 @@ class BaseMixtureModel(object):
 
         N, D = data.shape
         colors = "br"
-        for i in range(self.num_components):
+        for i in range(self.num_comp):
             foo = self.means + np.dot(self.cluster_factor_scores.flatten()[i], self.factor_loads)
             ax.scatter(foo.T[0], foo.T[1], facecolor=colors[i])
 
@@ -281,8 +235,7 @@ class BaseMixtureModel(object):
         weighted_log_prob = self._estimate_weighted_log_prob(data)
 
         log_likelihood = scipy.misc.logsumexp(weighted_log_prob, axis=1)
-        with np.errstate(under="ignore"):
-            # Ignore underflow errors.
+        with np.errstate(under="ignore"): # Ignore underflow errors.
             log_resp = weighted_log_prob - log_likelihood[:, np.newaxis]
 
         responsibility = np.exp(log_resp).T
@@ -326,16 +279,16 @@ class BaseMixtureModel(object):
             the number of dimensions per observation.
         """
         return _estimate_log_latent_factor_prob(
-            data, self.factor_loads, self.approximate_factor_scores, 
-            self.specific_variances, self.means)
+            data, self.means, self.factor_loads, self.specific_variances, 
+            self.cluster_factor_score_means, self.cluster_factor_score_variances)
 
 
 
-def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
-    specific_variances, mean):
+def _estimate_log_latent_factor_prob(data, means, factor_loads, specific_variances, 
+    cluster_factor_score_means, cluster_factor_score_variances):
 
     N, D = data.shape
-    L, K = cluster_factor_scores.shape
+    K, L = cluster_factor_score_means.shape
 
     # As usual:
     # N = number of data points
@@ -343,27 +296,19 @@ def _estimate_log_latent_factor_prob(data, factor_loads, cluster_factor_scores,
     # L = number of latent factors
     # K = number of clusters.
 
-    #import matplotlib.pyplot as plt
-    #fig, ax = plt.subplots()
-    #ax.scatter(data.T[0], data.T[1], facecolor="#666666", zorder=-1)
-    #colors = "br"
 
-    # TODO consider multiplication of inv_specific_variances instead
-    #import matplotlib.pyplot as plt
-    #fig, ax = plt.subplots()
-    #ax.scatter(data.T[0], data.T[1], facecolor="#666666", zorder=-1, alpha=0.5)
-    #colors = "br"
-
+    residual = data  - means
     log_prob = np.empty((N, K))
-    #for k, factor_scores in enumerate(cluster_factor_scores.T):
-    #    squared_diff = (data - mean - np.dot(factor_scores, factor_loads))**2
-    #    log_prob[:, k] = np.sum(squared_diff / specific_variances, axis=1)
 
-    squared_diff = (data - mean - np.dot(cluster_factor_scores, factor_loads))**2
-    log_prob[:, 0] = np.sum(squared_diff / specific_variances, axis=1)
+    for k, (factor_score_mu, factor_score_sigma) \
+    in enumerate(zip(cluster_factor_score_means, cluster_factor_score_variances)):
 
+        squared_diff = (residual - np.dot(factor_score_mu, factor_loads))**2
 
-    #raise a
+        variance = np.dot(factor_score_sigma, factor_loads)**2 \
+                 + specific_variances
+
+        log_prob[:, k] = np.sum(squared_diff / variance, axis=1)
 
     return - 0.5 * K * N * np.log(2 * np.pi) \
            + N * np.sum(np.log(specific_variances)) \

@@ -12,8 +12,8 @@ random_seed = 42
 np.random.seed(random_seed)
 
 # Generate some data.
-D = 5
-N = 500
+D = 2
+N = 1000
 load_magnitude = 5
 
 means = np.random.uniform(low=-1, high=1, size=D)
@@ -31,11 +31,6 @@ ax.scatter(X.T[0], X.T[1])
 
 
 mml_mod = SLFModel()
-mml_mod.truths = dict(
-    means=means,
-    factor_loads=factor_loads,
-    factor_scores=factor_scores,
-    specific_variances=specific_sigmas**2)
 mml_mod.fit(X)
 
 
@@ -77,39 +72,6 @@ ax.set_title('specific_sigmas')
 I_inferred, inferred_comps = mml_mod.message_length(X, full_output=True)
 I_truth, truth_comps = _message_length(X, means, factor_scores, factor_loads, specific_sigmas**2, full_output=True)
 
-raise a
+assert I_inferred <= I_truth
 
-
-
-
-#ml_mod = MLMixtureModel(num_components=2)
-#ml_mod.fit(X)
-
-
-mml_translate_parameters = {"factor_scores": "approximate_factor_scores"}
-
-for parameter_name in ("factor_scores", "factor_loads"):
-
-    fig, ax = plt.subplots()
-
-    x = gp[parameter_name].flatten()
-
-    #ax.scatter(x, getattr(ml_mod, parameter_name).flatten(),
-    #           facecolor="r", label="ml (aecm)")
-
-    mml_parameter_name = mml_translate_parameters.get(
-        parameter_name, parameter_name)
-
-    ax.scatter(x, getattr(mml_mod, mml_parameter_name).flatten(),
-               facecolor="b", label="mml (aecm)")
-
-    limits = np.array([ax.get_xlim(), ax.get_ylim()])
-    limits = (np.min(limits), np.max(limits))
-
-    ax.plot(limits, limits, c="#666666", lw=1, linestyle=":", zorder=-1)
-
-    ax.set_xlim(limits)
-    ax.set_ylim(limits)
-
-    ax.set_title(parameter_name)
 
