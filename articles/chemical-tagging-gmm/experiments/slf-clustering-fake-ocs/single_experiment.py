@@ -17,7 +17,7 @@ N = 500
 load_magnitude = 5
 
 means = np.random.uniform(low=-1, high=1, size=D)
-specific_sigmas = np.abs(np.random.normal(0, 0.15, size=D))
+specific_sigmas = np.random.uniform(0, 1, size=D)
 variates = np.random.normal(0, 1, size=(N, D))
 factor_loads = np.random.uniform(
     low=-load_magnitude, high=+load_magnitude, size=D).reshape((1, D))

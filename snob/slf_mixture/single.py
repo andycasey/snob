@@ -7,7 +7,7 @@ __all__ = ["SLFModel"]
 
 import logging
 import numpy as np
-import scipy
+from scipy import optimize as op
 
 logger = logging.getLogger("snob")
 
@@ -127,16 +127,13 @@ class SLFModel(object):
         beta = v[0] * np.sqrt(s[0])
 
         I = []
-        I2 = []
         I3 = []
 
         # Iterate as per Wallace & Freeman first.
         for iteration in range(self.max_em_iterations):
 
-            beta, change = self._iterate_and_update(beta, w, N, D, V, data)
+            beta, change = self._iterate_and_update(data, beta, V)
             I.append(self.message_length(data))
-            I2.append(_message_length(data, self.means, self.factor_scores,
-                self.factor_loads, self.truths["specific_variances"]))
             I3.append(_message_length(data, **self.truths))
 
             logger.debug("initialize_parameters: {} {}".format(iteration, change))
@@ -145,11 +142,10 @@ class SLFModel(object):
             if change is None or change < 1e-10:
                 break
 
-        # Update new specific variances?
+
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         ax.plot(I, label="I")
-        ax.plot(I2, label="I2")
         ax.plot(I3, label="truths")
         plt.legend()
         
@@ -170,8 +166,128 @@ class SLFModel(object):
 
         self.initialize_parameters(data)
 
+        # Optimize, because FUCK.
+        N, D = data.shape
+
+
+        I2 = []
+
+        w = data - self.means
+        V = np.dot(w.T, w)
+
+        def unpack(params):
+            factor_scores = params[:N].reshape((N, 1))
+            factor_loads = params[N:N + D].reshape((1, D))
+            specific_sigmas = params[N + D:N + 2*D].reshape((1, D))
+
+            return (factor_scores, factor_loads, specific_sigmas)
+
+        def pack(*params):
+            return np.hstack([np.array(p).flatten() for p in params])
+
+        I = []
+        sigmas = []
+        def objective_function(params):
+            # first N params are factor scores,
+            # next D params are factor loads,
+            # next D params are specific variances
+
+            factor_scores, factor_loads, specific_sigmas = unpack(params)
+
+            I.append(_message_length(
+                data, self.means, factor_scores, factor_loads, specific_sigmas**2))
+            sigmas.append(params[-D:])
+            assert np.isfinite(I[-1])
+            return I[-1]
+        
+
+        p0 = np.hstack([
+            self.factor_scores.flatten(),
+            self.factor_loads.flatten(),
+            self.specific_variances.flatten()**0.5
+        ])
+        p0 = np.random.normal(0, 1, size=p0.size)
+        #p0 = pack(
+        #    self.truths["factor_scores"],
+        #    self.truths["factor_loads"],
+        #    self.truths["specific_variances"]
+        #)
+
+        heaps = 10000000
+        result = op.fmin_l_bfgs_b(objective_function, p0, approx_grad=True,
+            factr=10, maxfun=heaps, maxiter=heaps)
+
+        factor_scores, factor_loads, specific_sigmas = unpack(result[0])
+
+        self.set_parameters(factor_scores=factor_scores, factor_loads=factor_loads,
+            specific_variances=specific_sigmas**2)
+        
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.plot(I)
+        ax.axhline(_message_length(data, **self.truths))
+
+
+        return None
+        raise a
+
+        def objective_function(beta):
+
+            beta = beta.reshape((D, ))
+
+            b_squared = np.sum(beta**2)
+
+            # Compute specific variances according to:
+            #   \sigma_k^2 = \frac{\sum_{n}w_{nk}^2}{(N-1)(1 + \Beta_k^2)}
+            # (If \Beta = 0, exit)
+
+            # Discrepancy between Wallace (2005) and Wallace and Freeman (1992) here
+            # as to whether this should be \beta_k^2 or b^2
+            specific_variances = np.diag(V) / ((N - 1.0) * (1.0 + beta**2))
+
+            # Compute Y using 
+            #   Y_{kj} = V_{kj}/\sigma_{k}\sigma_{j}
+            # which is Wallace & Freeman nomenclature. In our nomenclature
+            # that is:
+            #   Y_{ij} = V_{ij}/\sigma_{i}\sigma_{j}
+            factor_loads = np.atleast_2d(np.sqrt(specific_variances) * beta)
+            specific_sigmas = np.atleast_2d(specific_variances**0.5)
+
+            factor_scores = np.dot(data, beta) \
+                          * ((1.0 - D/(N - 1.0) * b_squared) / (1 + b_squared))
+            factor_scores = np.atleast_2d(factor_scores).T
+
+
+            I2.append(_message_length(data, self.means, factor_scores,
+                factor_loads, specific_variances))
+            print(beta, I2[-1])
+            return I2[-1]
+
+        p0 = np.array(self.factor_loads/np.sqrt(self.specific_variances))
+        _, s, v = np.linalg.svd(np.corrcoef(data.T))
+        beta = v[0] * np.sqrt(s[0])
+
+
+        truths = np.array(self.truths["factor_loads"]/np.sqrt(self.truths["specific_variances"]))
+        result2 = op.fmin(objective_function, truths)
+
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.plot(I2)
+        ax.axhline(_message_length(data, **self.truths), c='r')
+
+        raise a
+        return None
+
+        raise a
+
+
         # Calculate the inital expectation.
         responsibility, log_likelihood = self._expectation(data) 
+
+
 
         results = [log_likelihood.sum()]
         I = [self.message_length(data)]
@@ -254,9 +370,11 @@ class SLFModel(object):
             self.specific_variances, full_output=full_output)
 
 
-    def _iterate_and_update(self, beta, w, N, D, V, data):
+    def _iterate_and_update(self, data, beta, V):
 
-        beta, specific_variances, change = self._iterate_wf90(beta, N, D, V)
+        N, D = data.shape
+
+        beta, specific_variances, change = self._iterate_wf90(beta, V, N, D)
 
         factor_loads = np.sqrt(specific_variances) * beta
         b_sq = np.sum(beta**2)
@@ -274,7 +392,8 @@ class SLFModel(object):
         return (beta, change)
 
 
-    def _iterate_wf90(self, beta, N, D, V):
+
+    def _iterate_wf90(self, beta, V, N, D):
 
         beta = beta.reshape((D, ))
 
@@ -384,7 +503,7 @@ def _message_length(y, means, factor_scores, factor_loads, specific_variances,
 
     I_total = np.hstack(I.values()).sum() / np.log(2) # [bits]
 
-    print(I)
+    print(I_total, I)
     
     if not full_output:
         return I_total
