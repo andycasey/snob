@@ -13,10 +13,114 @@ __all__ = [
 import logging
 import numpy as np
 import scipy
+import scipy.misc
 import scipy.optimize as op
+import os
+import  matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
+
+# Used for visualizing the state of the search
+visualization_logger = logging.getLogger("visualize_{}".format(__name__))
+visualization_logger.setLevel(10)
+
+class VisualizationHandler(logging.StreamHandler):
+
+    _display = False
+    _expectation_iter = 1
+    _model = []
+    _figure_iter = 1
+    _figure_prefix = "iter"
+
+
+    def propagate(self):
+        return False
+
+    def _clear_model(self):
+
+        L = len(self._model)
+        for l in range(L):
+            item = self._model.pop(0)
+            item.set_visible(False)
+            del item
+
+
+
+    def emit(self, record):
+        if not self._display: return None
+
+        print("emit ", record)
+
+        if record.msg == "model":
+
+            self._clear_model()
+
+            # Update view of the model.
+            K = record.args["weight"].size
+
+            for k in range(K):
+                mean = record.args["mean"][k][:2]
+                cov = record.args["cov"][k]
+
+                vals, vecs = np.linalg.eigh(cov[:2, :2])
+                order = vals.argsort()[::-1]
+                vals = vals[order]
+                vecs = vecs[:,order]
+
+                theta = np.degrees(np.arctan2(*vecs[:,0][::-1]))
+
+                # Show 2 standard deviations
+                width, height = 2 * 2 * np.sqrt(vals)
+                ellip = Ellipse(xy=mean, width=width, height=height, angle=theta,
+                    facecolor="r", alpha=0.5)
+
+                self._model.append(self.axes[0].add_artist(ellip))
+                self._model.append(self.axes[0].scatter([mean[0]], [mean[1]], facecolor="r"))
+
+            # Only save on model update.
+            self.savefig()
+        
+
+        if record.msg == "expectation":
+            self.axes[1].scatter(
+                [self._expectation_iter], [record.args["message_length"]],
+                facecolor="k")
+            self._expectation_iter += 1
+
+        
+
+
+    def savefig(self):
+        plt.draw()
+        path = "{0:s}_{1:05d}.png".format(self._figure_prefix, self._figure_iter)
+        self.fig.savefig(path)
+        print("Created {}".format(path))
+        self._figure_iter += 1
+
+
+    def enable(self, y):
+        self.fig, self.axes = plt.subplots(2)
+        self._display = True
+
+        self.axes[0].scatter(y.T[0], y.T[1], facecolor="k", alpha=0.5)
+
+        self.savefig()
+
+
+    def create_movie(self, cleanup=True):
+        os.system('ffmpeg -n -i "{}_%05d.png" output.m4v'.format(self._figure_prefix))
+
+        if cleanup:
+            os.system("rm -fv {}_*.png".format(self._figure_prefix))
+
+
+
+visualization_logger.addHandler(VisualizationHandler())
+
+
 
 
 # OK,. let's see if we can estimate the learning rate \gamma
@@ -55,7 +159,9 @@ def _generator_for_approximate_log_likelihood_improvement(K, log_likelihood,
     normalization_factor, *log_likelihoods_of_sequentially_increasing_mixtures):
     
     x = np.arange(K, K + len(log_likelihoods_of_sequentially_increasing_mixtures))
-    ll = np.hstack([log_likelihood, *log_likelihoods_of_sequentially_increasing_mixtures])
+    ll = np.hstack([
+        log_likelihood, 
+        log_likelihoods_of_sequentially_increasing_mixtures])
     y = np.diff(ll) / normalization_factor
 
     functions = {
@@ -257,7 +363,7 @@ class GaussianMixture(object):
     :param covariance_type: [optional]
         The structure of the covariance matrix for individual components.
         The available options are: `full` for a free covariance matrix, or
-        `diag` for a diagonal covariance matrix (default: ``diag``).
+        `diag` for a diagonal covariance matrix (default: ``full``).
 
     :param covariance_regularization: [optional]
         Regularization strength to add to the diagonal of covariance matrices
@@ -277,7 +383,7 @@ class GaussianMixture(object):
     def __init__(self, covariance_type="full", covariance_regularization=0, 
         threshold=1e-5, max_em_iterations=10000, **kwargs):
 
-        available = ("full", "diag", )
+        available = ("full", )
         covariance_type = covariance_type.strip().lower()
         if covariance_type not in available:
             raise ValueError("covariance type '{}' is invalid. "\
@@ -326,132 +432,44 @@ class GaussianMixture(object):
         r""" Return the maximum number of expectation-maximization steps. """
         return self._max_em_iterations
 
-
-    def fast_search(self, y, **kwargs):
-        r"""
-        Search for the number of components, without running E-M everywhere.
-        """
-
-        kwds = dict(
-            threshold=self._threshold,
-            max_em_iterations=self._max_em_iterations,
-            covariance_type=self._covariance_type,
-            covariance_regularization=self._covariance_regularization)
-
-        N, D = y.shape
-
-        # Initialize the mixture.
-        mean = np.mean(y, axis=0).reshape((1, -1))
-        cov = _estimate_covariance_matrix(y, np.ones((1, N)), mean,
-            covariance_type, covariance_regularization)
-
-        R, ll, message_length = _expectation(y, mean, cov, weight, **kwds)
-
-        converged = False
-
-        while True:
-
-            # Split components, in order of ones with highest |C|.
-            component_indices = np.argsort(np.linalg.det(cov))[::-1]
-            split_component_index = component_indices[0]
-
-        
-            # Split this mixture.
-
-            split()
-
-            for iteration in range(self.max_em_iterations):
-
-                # Run e-step
-                self._expectation()
-
-                # Run m-step
-                self._maximization()
-
-                # Calculate P(I_{K+1} - I_{K} < 0).
-                # If we should add another component, then run the split
-                # again.
-                if self._predict_next_mixture_message_length() < best_ml:
-                    break
-
-                # If not, then we should check to see if E-M is converged.
-                # If it is, then stop. If not, run E-M again.
-                if self.threshold >= abs(change):
-                    # Here we want to leave the loop and not allow any more
-                    # splitting, since it's probably not worthwhile doing.
-                    converged = True
-                    break
-
-
-            else:
-                print("Warning: max number of EM steps")
-
-
-            # Did that E-M iteration converge, and we won't split again?
-            if converged: break
-
-
-            # TODO:
-            # Need some kind of check to see whether we should have
-            # splitted something else.
-            break
-
-
-
-        # Split the mixture.
-        
-        # Compute the direction of maximum variance of the single component, and
-        # locate two points which are one standard deviation away on either side.
-        U, S, V = _svd(cov, self.covariance_type)
-        child_mean = mean - np.vstack([+V[0], -V[0]]) * S[0]**0.5
-
-        # Responsibilities are initialized by allocating the data points to the 
-        # closest of the two means.
-        distance = np.vstack([
-            np.sum((y - child_mean[0])**2, axis=1),
-            np.sum((y - child_mean[1])**2, axis=1)
-        ])
-        
-        child_responsibility = np.zeros((2, N))
-        child_responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
-
-        # Calculate the child covariance matrices.
-        child_cov = _estimate_covariance_matrix(y, child_responsibility, child_mean,
-            kwargs["covariance_type"], kwargs["covariance_regularization"])
-
-        child_effective_membership = np.sum(child_responsibility, axis=1)    
-        child_weight = child_effective_membership.T/child_effective_membership.sum()
-
-        # OK, now run E-step.
-        
-        raise a
-
-
     def search(self, y, **kwargs):
+        return self._search_slow(y, **kwargs)
+
+
+
+    def _search_slow(self, y, **kwargs):
         r"""
         Search for the number of components.
+
+        This is a slow and greedy search, where no jumps are ever made between
+        mixtures. We simply predict the future message length of future mixtures
+        and iteratively split components.
         """
 
         kwds = dict(
             threshold=self._threshold, 
             max_em_iterations=self._max_em_iterations,
             covariance_type=self.covariance_type, 
-            covariance_regularization=self._covariance_regularization)
+            covariance_regularization=self._covariance_regularization,
+        )
+
+        # Set up visualization if necessary.
+        if kwargs.get("visualize", True):
+            visualization_logger.handlers[0].enable(y)
 
         # Initialize the mixture.
         mu, cov, weight = _initialize(y, **kwds)
         R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
-                
+        
         # Evaluate the initial function.
         initial_ll = ll.sum()
         normalization_factor = 1.0/_evaluate_gaussian(y, mu[0], cov[0]).sum()
-
 
         N, D = y.shape
 
         # Split the component, run E-M, then approximate the change in the
         # log-likelihood.
-        # TODO: We don't even need to run E-M.
+        # TODO: we don't even 
         optimized_mixture_lls = []
         actual_sum_log_weights = [np.sum(np.log(weight))]
         actual_sum_log_det_cov = [np.sum(np.log(np.linalg.det(cov)))]
@@ -474,7 +492,7 @@ class GaussianMixture(object):
             bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
             b_k, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
 
-            print("TOOK {}".format(b_k))
+            print("TOOK {} AS BEST OPTION".format(b_k))
 
             # Predict say, 5 steps ahead.
             bar = []
@@ -499,22 +517,25 @@ class GaussianMixture(object):
 
             if message_length > b_ml:
                 mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
+
                 message_length = b_ml
                 ll = b_meta["log_likelihood"]
+
+                visualization_logger.info("model",
+                    dict(mean=mu, cov=cov, weight=weight))
+                visualization_logger.info("expectation",
+                     dict(message_length=message_length))
+
             else:
+                visualization_logger.info("model",
+                    dict(mean=mu, cov=cov, weight=weight))
+                visualization_logger.info("expectation",
+                     dict(message_length=message_length))
+
                 break
 
 
-        # weeights could be improved, but they aren;t bad (~10 nats at K=16)
-        """
-        x = 1 + np.arange(len(actual_sum_log_weights))
-        expected = _approximate_sum_log_weights(x)
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        ax.scatter(x, actual_sum_log_weights)
-        ax.plot(x, expected)
-        """
-        
+                
         x = 1 + np.arange(len(predicted_sum_log_det_cov))
         predicted_sum_log_det_cov = np.array(predicted_sum_log_det_cov)
 
@@ -524,6 +545,7 @@ class GaussianMixture(object):
         ax.plot(x, predicted_sum_log_det_cov.T[0])
         ax.plot(x, predicted_sum_log_det_cov.T[1])
 
+        visualization_logger.handlers[0].create_movie()
 
         raise a
 
@@ -621,160 +643,6 @@ class GaussianMixture(object):
         raise a
 
 
-    def fit(self, y, num_components=None, **kwargs):
-        r"""
-        Minimize the message length of a mixture of Gaussians, 
-        using our own search algorithm.
-
-        :param y:
-            A :math:`N\times{}D` array of the observations :math:`y`,
-            where :math:`N` is the number of observations, and :math:`D` is
-            the number of dimensions per observation.
-
-        :returns:
-            A tuple containing the optimized parameters ``(mu, cov, weight)``.
-        """
-
-        kwds = dict(
-            threshold=self._threshold, 
-            max_em_iterations=self._max_em_iterations,
-            covariance_type=self.covariance_type, 
-            covariance_regularization=self._covariance_regularization)
-
-        """
-
-        # Initialize the mixture.
-        mu, cov, weight = _initialize(y, **kwds)
-
-        N, D = y.shape
-        iterations = 1
-        
-        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
-        ll_dl = [(ll, message_length)]
-
-        # Do E-M on this initial component.
-        mu, cov, weight, responsibility, meta, dl \
-            = _expectation_maximization(y, mu, cov, weight, responsibility=R, 
-                **kwds)
-
-
-        _, log_likelihood = responsibility_matrix(
-            y, mu, cov, weight, full_output=True, **kwds)
-        nll = -np.sum(log_likelihood)
-        I, I_full = _message_length(y, mu, cov, weight, responsibility, nll, full_output=True, **kwds)
-        meta.update(message_length=I, message_length_meta=I_full)
-
-        if num_components == 1:
-            return (mu, cov, weight, meta)
-        
-        # Estimate whether we should introduce another mixture.
-
-        if num_components == 2:
-            # Split it.
-            mu, cov, weight, responsibility, meta, dl \
-                = split_component(y, mu, cov, weight, responsibility, 0, **kwds)
-
-            _, log_likelihood = responsibility_matrix(
-                y, mu, cov, weight, full_output=True, **kwds)
-            nll = -np.sum(log_likelihood)
-            I, I_full = _message_length(y, mu, cov, weight, responsibility, nll, full_output=True, **kwds)
-            meta.update(message_length=I, message_length_meta=I_full)
-
-            return (mu, cov, weight, meta)
-        """
-
-        mu, cov, weight = _initialize(y, **kwds)
-        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
-        ll_dl = [(ll.sum(), message_length)]
-        meta = dict(log_likelihood=ll.sum(), message_length=message_length)
-
-        while True:
-
-            K = weight.size
-            if K >= num_components: break
-            best_perturbations = defaultdict(lambda: [np.inf])
-            
-            # Split all components.
-            for k in range(K):
-                p = split_component(y, mu, cov, weight, R, k, **kwds)
-
-                # Keep best split component.
-                if p[-1] < best_perturbations["split"][-1]:
-                    best_perturbations["split"] = [k] + list(p)
-
-
-            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
-            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
-
-            logger.debug("Best operation: {} {}".format(bop, b_ml))
-
-            # Set the new state as the best perturbation.
-            message_length = b_ml
-            mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
-            meta.update(message_length=b_ml)
-
-        return (mu, cov, weight, meta)
-        raise a
-
-
-        mu3, cov3, weight3, responsibility3, meta3, dl3 \
-            = split_component(y, mu2, cov2, weight2, responsibility2, 1, **kwds)
-
-        responsibility_matrix(y, mu2, cov2, weight2, dofail=True, **kwds)
-
-
-        raise a
-
-        while True:
-
-            M = weight.size
-            best_perturbations = defaultdict(lambda: [np.inf])
-                
-            # Exhaustively split all components.
-            for m in range(M):
-                p = split_component(y, mu, cov, weight, R, m, **kwds)
-
-                # Keep best split component.
-                if p[-1] < best_perturbations["split"][-1]:
-                    best_perturbations["split"] = [m] + list(p)
-            
-            if M > 1:
-                # Exhaustively delete all components.
-                for m in range(M):
-                    p = delete_component(y, mu, cov, weight, R, m, **kwds)
-
-                    # Keep best deleted component.
-                    if p[-1] < best_perturbations["delete"][-1]:
-                        best_perturbations["delete"] = [m] + list(p)
-                
-                # Exhaustively merge all components.
-                for m in range(M):
-                    p = merge_component(y, mu, cov, weight, R, m, **kwds)
-
-                    # Keep best merged component.
-                    if p[-1] < best_perturbations["merge"][-1]:
-                        best_perturbations["merge"] = [m] + list(p)
-
-            # Get best perturbation.
-            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
-            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
-
-            logger.debug("Best operation: {} {}".format(bop, b_ml))
-
-            if message_length > b_ml:
-                # Set the new state as the best perturbation.
-                iterations += 1
-                message_length = b_ml
-                mu, cov, weight, R = (b_mu, b_cov, b_weight, b_R)
-
-            else:
-                # None of the perturbations were better than what we had.
-                break
-
-        # TODO: a full_output response.
-        meta = dict(message_length=message_length)
-        return (mu, cov, weight, meta)
-        
 
 
 def responsibility_matrix(y, mu, cov, weight, covariance_type, 
@@ -963,6 +831,8 @@ def _initialize(y, covariance_type, covariance_regularization, **kwargs):
     cov = _estimate_covariance_matrix(y, np.ones((1, N)), mean,
         covariance_type, covariance_regularization)
 
+    visualization_logger.info("model", dict(mean=mean, cov=cov, weight=weight))
+
     return (mean, cov, weight)
     
 
@@ -1001,6 +871,9 @@ def _expectation(y, mu, cov, weight, **kwargs):
 
     I = _message_length(y, mu, cov, weight, responsibility, nll, **kwargs)
     
+    visualization_logger.info("expectation", dict(message_length=I, 
+        responsibility=responsibility, log_likelihood=log_likelihood))
+
     return (responsibility, log_likelihood, I)
 
 
@@ -1356,6 +1229,9 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
     assert np.all(np.isfinite(new_mu))
     assert np.all(np.isfinite(new_cov))
     assert np.all(np.isfinite(new_weight))
+
+    visualization_logger.info("model",
+        dict(mean=new_mu, cov=new_cov, weight=new_weight))
 
     return state 
 
@@ -1747,3 +1623,269 @@ def merge_component(y, mu, cov, weight, responsibility, index, **kwargs):
     # Calculate log-likelihood.
     return _expectation_maximization(y, new_mu, new_cov, new_weight,
         responsibility=new_responsibility,  **kwargs)
+
+
+
+
+
+'''
+OLD FUNCTIONS
+
+
+    def fast_search(self, y, **kwargs):
+        r"""
+        Search for the number of components, without running E-M everywhere.
+        """
+
+        
+        dict(
+            threshold=self._threshold,
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self._covariance_type,
+            covariance_regularization=self._covariance_regularization)
+
+        K_init = 1 # TODO: make this an optional argument somewhere
+        N, D = y.shape
+
+        # Initialize the mixture with K_init.
+        mean = np.mean(y, axis=0).reshape((1, -1))
+        cov = _estimate_covariance_matrix(y, np.ones((1, N)), mean,
+            covariance_type, covariance_regularization)
+
+        R, ll, message_length = _expectation(y, mean, cov, weight, **kwds)
+
+        converged = False
+
+        while True:
+
+            # Split components, in order of ones with highest |C|.
+            component_indices = np.argsort(np.linalg.det(cov))[::-1]
+            split_component_index = component_indices[0]
+
+        
+            # Split this mixture.
+
+            split()
+
+            for iteration in range(self.max_em_iterations):
+
+                # Run e-step
+                self._expectation()
+
+                # Run m-step
+                self._maximization()
+
+                # Calculate P(I_{K+1} - I_{K} < 0).
+                # If we should add another component, then run the split
+                # again.
+                if self._predict_next_mixture_message_length() < best_ml:
+                    break
+
+                # If not, then we should check to see if E-M is converged.
+                # If it is, then stop. If not, run E-M again.
+                if self.threshold >= abs(change):
+                    # Here we want to leave the loop and not allow any more
+                    # splitting, since it's probably not worthwhile doing.
+                    converged = True
+                    break
+
+
+            else:
+                print("Warning: max number of EM steps")
+
+
+            # Did that E-M iteration converge, and we won't split again?
+            if converged: break
+
+
+            # TODO:
+            # Need some kind of check to see whether we should have
+            # splitted something else.
+            break
+
+
+
+        # Split the mixture.
+        
+        # Compute the direction of maximum variance of the single component, and
+        # locate two points which are one standard deviation away on either side.
+        U, S, V = _svd(cov, self.covariance_type)
+        child_mean = mean - np.vstack([+V[0], -V[0]]) * S[0]**0.5
+
+        # Responsibilities are initialized by allocating the data points to the 
+        # closest of the two means.
+        distance = np.vstack([
+            np.sum((y - child_mean[0])**2, axis=1),
+            np.sum((y - child_mean[1])**2, axis=1)
+        ])
+        
+        child_responsibility = np.zeros((2, N))
+        child_responsibility[np.argmin(distance, axis=0), np.arange(N)] = 1.0
+
+        # Calculate the child covariance matrices.
+        child_cov = _estimate_covariance_matrix(y, child_responsibility, child_mean,
+            kwargs["covariance_type"], kwargs["covariance_regularization"])
+
+        child_effective_membership = np.sum(child_responsibility, axis=1)    
+        child_weight = child_effective_membership.T/child_effective_membership.sum()
+
+        # OK, now run E-step.
+        
+        raise a
+
+
+    def fit(self, y, num_components=None, **kwargs):
+        r"""
+        Minimize the message length of a mixture of Gaussians, 
+        using our own search algorithm.
+
+        :param y:
+            A :math:`N\times{}D` array of the observations :math:`y`,
+            where :math:`N` is the number of observations, and :math:`D` is
+            the number of dimensions per observation.
+
+        :returns:
+            A tuple containing the optimized parameters ``(mu, cov, weight)``.
+        """
+
+        kwds = dict(
+            threshold=self._threshold, 
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self.covariance_type, 
+            covariance_regularization=self._covariance_regularization)
+
+        """
+
+        # Initialize the mixture.
+        mu, cov, weight = _initialize(y, **kwds)
+
+        N, D = y.shape
+        iterations = 1
+        
+        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+        ll_dl = [(ll, message_length)]
+
+        # Do E-M on this initial component.
+        mu, cov, weight, responsibility, meta, dl \
+            = _expectation_maximization(y, mu, cov, weight, responsibility=R, 
+                **kwds)
+
+
+        _, log_likelihood = responsibility_matrix(
+            y, mu, cov, weight, full_output=True, **kwds)
+        nll = -np.sum(log_likelihood)
+        I, I_full = _message_length(y, mu, cov, weight, responsibility, nll, full_output=True, **kwds)
+        meta.update(message_length=I, message_length_meta=I_full)
+
+        if num_components == 1:
+            return (mu, cov, weight, meta)
+        
+        # Estimate whether we should introduce another mixture.
+
+        if num_components == 2:
+            # Split it.
+            mu, cov, weight, responsibility, meta, dl \
+                = split_component(y, mu, cov, weight, responsibility, 0, **kwds)
+
+            _, log_likelihood = responsibility_matrix(
+                y, mu, cov, weight, full_output=True, **kwds)
+            nll = -np.sum(log_likelihood)
+            I, I_full = _message_length(y, mu, cov, weight, responsibility, nll, full_output=True, **kwds)
+            meta.update(message_length=I, message_length_meta=I_full)
+
+            return (mu, cov, weight, meta)
+        """
+
+        mu, cov, weight = _initialize(y, **kwds)
+        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+        ll_dl = [(ll.sum(), message_length)]
+        meta = dict(log_likelihood=ll.sum(), message_length=message_length)
+
+        while True:
+
+            K = weight.size
+            if K >= num_components: break
+            best_perturbations = defaultdict(lambda: [np.inf])
+            
+            # Split all components.
+            for k in range(K):
+                p = split_component(y, mu, cov, weight, R, k, **kwds)
+
+                # Keep best split component.
+                if p[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [k] + list(p)
+
+
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
+
+            logger.debug("Best operation: {} {}".format(bop, b_ml))
+
+            # Set the new state as the best perturbation.
+            message_length = b_ml
+            mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
+            meta.update(message_length=b_ml)
+
+        return (mu, cov, weight, meta)
+        raise a
+
+
+        mu3, cov3, weight3, responsibility3, meta3, dl3 \
+            = split_component(y, mu2, cov2, weight2, responsibility2, 1, **kwds)
+
+        responsibility_matrix(y, mu2, cov2, weight2, dofail=True, **kwds)
+
+
+        raise a
+
+        while True:
+
+            M = weight.size
+            best_perturbations = defaultdict(lambda: [np.inf])
+                
+            # Exhaustively split all components.
+            for m in range(M):
+                p = split_component(y, mu, cov, weight, R, m, **kwds)
+
+                # Keep best split component.
+                if p[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [m] + list(p)
+            
+            if M > 1:
+                # Exhaustively delete all components.
+                for m in range(M):
+                    p = delete_component(y, mu, cov, weight, R, m, **kwds)
+
+                    # Keep best deleted component.
+                    if p[-1] < best_perturbations["delete"][-1]:
+                        best_perturbations["delete"] = [m] + list(p)
+                
+                # Exhaustively merge all components.
+                for m in range(M):
+                    p = merge_component(y, mu, cov, weight, R, m, **kwds)
+
+                    # Keep best merged component.
+                    if p[-1] < best_perturbations["merge"][-1]:
+                        best_perturbations["merge"] = [m] + list(p)
+
+            # Get best perturbation.
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_m, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
+
+            logger.debug("Best operation: {} {}".format(bop, b_ml))
+
+            if message_length > b_ml:
+                # Set the new state as the best perturbation.
+                iterations += 1
+                message_length = b_ml
+                mu, cov, weight, R = (b_mu, b_cov, b_weight, b_R)
+
+            else:
+                # None of the perturbations were better than what we had.
+                break
+
+        # TODO: a full_output response.
+        meta = dict(message_length=message_length)
+        return (mu, cov, weight, meta)
+        
+'''

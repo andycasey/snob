@@ -23,3 +23,5 @@ notebooks/.ipynb_checkpoints/
 docs/build/
 
 sandbox_*.py
+*.mkv
+*.png
