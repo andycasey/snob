@@ -35,6 +35,9 @@ class VisualizationHandler(logging.StreamHandler):
     _figure_iter = 1
     _figure_prefix = "iter"
 
+    _detcovs = []
+
+    _slogdetcovs = []
 
     def propagate(self):
         return False
@@ -51,8 +54,6 @@ class VisualizationHandler(logging.StreamHandler):
 
     def emit(self, record):
         if not self._display: return None
-
-        print("emit ", record)
 
         if record.msg == "model":
 
@@ -80,9 +81,20 @@ class VisualizationHandler(logging.StreamHandler):
                 self._model.append(self.axes[0].add_artist(ellip))
                 self._model.append(self.axes[0].scatter([mean[0]], [mean[1]], facecolor="r"))
 
+            
+            K = record.args["weight"].size
+            slogdet_cov = np.sum(np.log(np.linalg.det(record.args["cov"])))
+            self._slogdetcovs.append([K, slogdet_cov])
+            self._detcovs.append(np.log(np.mean(np.linalg.det(record.args["cov"]))))
+            print("foo", slogdet_cov)
+            self.axes[3].scatter([K], [slogdet_cov], facecolor="k")
+
+            self.axes[4].scatter([K], [self._detcovs[-1]], facecolor="k", alpha=0.5)
+
             # Only save on model update.
             self.savefig()
         
+
 
         if record.msg == "expectation":
             self.axes[1].scatter(
@@ -91,6 +103,35 @@ class VisualizationHandler(logging.StreamHandler):
             self._expectation_iter += 1
 
         
+        if record.msg == "prediction":
+            K = record.args["K"]
+            message_length = record.args["message_length"]
+            self.axes[2].fill_between(K, message_length.T[0], message_length.T[1], alpha=0.5,
+                facecolor="r")
+
+
+            self.savefig()
+
+        elif record.msg == "change_K":
+            self.axes[1].axvline(self._expectation_iter, c='b')
+
+            v = np.array(self._slogdetcovs)
+            x = np.unique(v.T[0])
+            y = [np.min(v.T[1][v.T[0] == xi]) for xi in x]
+
+            self.axes[3].plot(x, y, c='r')
+
+            # look ahead
+            xi = max(x) + np.arange(1, 5)
+            yi = _approximate_slogdets(xi, record.args[0][1])
+
+            self.axes[3].plot(xi, yi, c='b')
+
+            if max(x) == 4:
+                raise a
+
+
+            self.savefig()
 
 
     def savefig(self):
@@ -102,7 +143,8 @@ class VisualizationHandler(logging.StreamHandler):
 
 
     def enable(self, y):
-        self.fig, self.axes = plt.subplots(2)
+
+        self.fig, self.axes = plt.subplots(5)
         self._display = True
 
         self.axes[0].scatter(y.T[0], y.T[1], facecolor="k", alpha=0.5)
@@ -111,7 +153,8 @@ class VisualizationHandler(logging.StreamHandler):
 
 
     def create_movie(self, cleanup=True):
-        os.system('ffmpeg -n -i "{}_%05d.png" output.m4v'.format(self._figure_prefix))
+
+        os.system('ffmpeg -y -i "{}_%05d.png" output.m4v'.format(self._figure_prefix))
 
         if cleanup:
             os.system("rm -fv {}_*.png".format(self._figure_prefix))
@@ -263,12 +306,14 @@ def _approximate_sum_log_weights(target_K):
         The number of target Gaussian mixtures.
     """
 
-    # TODO: Return a variance on this expectation.
+    # TODO: Return a variance on this expectation, or approximate the constant
+    #       from previous values.
     return -target_K * np.log(target_K)
 
 
+
 def _approximate_bound_sum_log_determinate_covariances(target_K, 
-    covariance_matrices, covariance_type):
+    covariance_matrices, covariance_type="full"):
     r"""
     Return an approximate expectation of the function:
 
@@ -308,14 +353,63 @@ def _approximate_bound_sum_log_determinate_covariances(target_K,
     # Get the current determinants.
     current_K, D, _ = covariance_matrices.shape
     assert covariance_type == "full" #TODO
-    assert target_K > current_K
+    assert np.all(target_K > current_K)
 
-    current_det = np.linalg.det(covariance_matrices)
+    target_K = np.array(target_K)
+    current_dets = np.sort(np.linalg.det(covariance_matrices))
 
-    current_det_bounds = np.array([np.min(current_det), np.max(current_det)])
-    target_det_bounds = current_K/float(target_K) * current_det_bounds
+    # Need to do this iteratively.
+    K_trials = np.unique(1 + np.arange(current_K, target_K.max()))
 
-    return target_K * np.log(target_det_bounds)
+    keep = np.zeros(K_trials.shape, dtype=bool)
+    all_approx_slogdet_covs = []
+    for i, K_trial in enumerate(K_trials):
+
+        new_det_bounds = K_trial/(K_trial + 1.0) \
+                       * np.array([current_dets[0], current_dets[-1]])
+ 
+        approx_slogdet_covs = K_trial * np.log(new_det_bounds)
+        all_approx_slogdet_covs.append(approx_slogdet_covs)
+
+        # Update the possible slogdet bounds.
+        current_dets[0] = new_det_bounds[0]
+        current_dets[-1] = new_det_bounds[-1]
+        current_dets = np.sort(new_det_bounds)
+
+        print("current dets", K_trial, current_dets)
+        if K_trial in target_K:
+            keep[i] = True
+
+    all_approx_slogdet_covs = np.array(all_approx_slogdet_covs)
+
+    return all_approx_slogdet_covs[keep]
+
+
+def _approximate_slogdets(K, covariance_matrices, covariance_type="full"):
+    r"""
+    Approximate the sum of the log of the determinates of the covariance 
+    matrices for a mixture of :math:`K` gaussians based on the current estimate
+    of the covariance matrices.
+
+    We approximate this by stating that the log of the mean of the determinate
+    of the covariance matrices will decrease approximately as K/(K + 1).
+    You should re-read that sentence again because it is easy to confuse it!
+    """
+
+    K = np.atleast_1d(K)
+
+    # Get current_K
+    covariance_matrices = np.atleast_3d(covariance_matrices)
+    current_K = covariance_matrices.shape[0]
+
+    current_log_mean_det = np.log(np.mean(np.linalg.det(covariance_matrices)))
+
+    # Assume that the log of the mean determinate of the covariance matrices
+    # decreases approximately as (K/K + 1)
+    mean_det = np.exp(float(current_K)/K * current_log_mean_det)
+
+    return np.log(K * mean_det)
+    
 
 
 def _approximate_message_length_change(target_K, current_weights,
@@ -404,6 +498,13 @@ class GaussianMixture(object):
         self._max_em_iterations = max_em_iterations
         self._covariance_type = covariance_type
         self._covariance_regularization = covariance_regularization
+
+        # Lists to record states for predictive purposes.
+        self._state_K = []
+        self._state_det_covs = []
+        self._state_slog_weights = []
+        self._state_slog_likelihoods = []
+
         return None
 
 
@@ -433,8 +534,135 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
     def search(self, y, **kwargs):
-        return self._search_slow(y, **kwargs)
+        return self._search(y, **kwargs)
 
+
+    def _search(self, y, **kwargs):
+
+        kwds = dict(
+            threshold=self._threshold, 
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self.covariance_type, 
+            covariance_regularization=self._covariance_regularization)
+
+        # Initialize visualization if necessary.
+        if kwargs.get("visualize", True):
+            visualization_logger.handlers[0].enable(y)
+
+        # Initialize the mixture.
+        mu, cov, weight = _initialize(y, **kwds)
+        R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+
+        # Record things for predictive purposes.
+        self._record_state_for_predictions(cov, weight, ll)
+
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+
+        #K = np.arange(2, 11)
+        #y = _approximate_bound_sum_log_determinate_covariances(K, cov)
+        #ax.fill_between(K, y.T[0], y.T[1], alpha=0.25, facecolor="b")
+
+
+        while True:
+            K = weight.size
+            best_perturbations = defaultdict(lambda: [np.inf])
+
+            for k in range(K):
+                perturbation = split_component(y, mu, cov, weight, R, k, **kwds)
+    
+                if perturbation[-1] < best_perturbations["split"][-1]:
+                    best_perturbations["split"] = [k] + list(perturbation)
+
+            bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
+            b_k, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
+
+            x = b_weight.size + np.arange(1, 11)
+            y2 = _approximate_bound_sum_log_determinate_covariances(x, b_cov)
+            ax.fill_between(x, y2.T[0], y2.T[1], alpha=0.25, facecolor="b")
+            
+            ax.scatter([b_weight.size], [np.sum(np.log(np.linalg.det(b_cov)))])
+
+            # Check to see if we are cooked.
+            if b_ml >= message_length: break
+            # Not cooked!
+
+            mu, cov, weight, R, meta = (b_mu, b_cov, b_weight, b_R, b_meta)
+
+            message_length = b_ml
+            ll = b_meta["log_likelihood"]
+
+            # Record things for predictive purposes.
+            self._record_state_for_predictions(cov, weight, ll)
+
+
+        K = np.arange(1, 11)
+        self._predict_slogweights(K)
+
+        self._predict_slogdetcovs(K)
+
+        raise a
+
+
+    def _record_state_for_predictions(self, cov, weight, log_likelihood):
+        r"""
+        Record 'best' trialled states (for a given K) in order to make some
+        predictions about future mixtures.
+        """
+
+        self._state_K.append(weight.size)
+
+        # Record determinates of covariance matrices.
+        determinates = np.linalg.det(cov)
+        self._state_det_covs.append(determinates)
+
+        # Record sum of the log of the weights.
+        self._state_slog_weights.append(np.sum(np.log(weight)))
+
+        # Record log likelihood
+        self._state_slog_likelihoods.append(np.sum(log_likelihood))
+
+
+    def  _predict_slogweights(self, target_K):
+
+        fig, ax = plt.subplots()
+
+        x = np.atleast_1d(target_K)
+        y_bound = _approximate_sum_log_weights(x)
+
+        xdata = np.array(self._state_K)
+        ydata = np.array(self._state_slog_weights)
+
+        ax.scatter(xdata, ydata)
+        ax.plot(x, y_bound, c='r')
+
+
+    def _predict_slogdetcovs(self, target_K):
+
+        from george import kernels
+
+        x = np.array(self._state_K)
+        y = np.array([np.sum(np.log(each)) for each in self._state_det_covs])
+
+        yerr = 0.1 
+
+        kernel = np.var(y) * kernels.ExpSquaredKernel(0.5)
+        gp = george.GP(kernel)
+        gp.compute(x, yerr)
+
+        x_pred = np.atleast_1d(target_K)
+        pred, pred_var = gp.predict(y, x_pred, return_var=True)
+
+        fig, ax = plt.subplots()
+        ax.scatter(x, y)
+
+        ax.fill_between(x_pred, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var),
+                color="k", alpha=0.2)
+
+
+        raise a
 
 
     def _search_slow(self, y, **kwargs):
@@ -450,12 +678,7 @@ class GaussianMixture(object):
             threshold=self._threshold, 
             max_em_iterations=self._max_em_iterations,
             covariance_type=self.covariance_type, 
-            covariance_regularization=self._covariance_regularization,
-        )
-
-        # Set up visualization if necessary.
-        if kwargs.get("visualize", True):
-            visualization_logger.handlers[0].enable(y)
+            covariance_regularization=self._covariance_regularization)
 
         # Initialize the mixture.
         mu, cov, weight = _initialize(y, **kwds)
@@ -470,11 +693,14 @@ class GaussianMixture(object):
         # Split the component, run E-M, then approximate the change in the
         # log-likelihood.
         # TODO: we don't even 
+
         optimized_mixture_lls = []
         actual_sum_log_weights = [np.sum(np.log(weight))]
         actual_sum_log_det_cov = [np.sum(np.log(np.linalg.det(cov)))]
+
         predicted_sum_log_det_cov = [_approximate_bound_sum_log_determinate_covariances(2,
             cov, "full")]
+
         while True:
 
             K = weight.size
@@ -507,12 +733,17 @@ class GaussianMixture(object):
             idx = np.argmin(bar.T[1])
             print("PREDICTED WE MOVE TO {}: {} (FROM {})".format(range(2, 2+20)[idx] + K, bar[idx], b_ml))
 
+            visualization_logger.info("prediction",
+                dict(K=K + np.arange(2, 2+20),
+                    message_length=bar))
+
             # Update our approximations.
             optimized_mixture_lls.append(b_meta["log_likelihood"].sum())
 
             actual_sum_log_weights.append(np.sum(np.log(b_weight)))
             actual_sum_log_det_cov.append(np.sum(np.log(np.linalg.det(b_cov))))
-            predicted_sum_log_det_cov.append(_approximate_bound_sum_log_determinate_covariances(K + 2,
+            predicted_sum_log_det_cov.append(
+                _approximate_bound_sum_log_determinate_covariances(K + 2,
                 b_cov, "full"))
 
             if message_length > b_ml:
@@ -546,6 +777,10 @@ class GaussianMixture(object):
         ax.plot(x, predicted_sum_log_det_cov.T[1])
 
         visualization_logger.handlers[0].create_movie()
+
+        fig, ax = plt.subplots()
+        ax.scatter(x, actual_sum_log_det_cov)
+        ax.fill_between(x + 1, predicted_sum_log_det_cov.T[0], predicted_sum_log_det_cov.T[1], alpha=0.5)
 
         raise a
 
@@ -1313,8 +1548,6 @@ def _expectation_maximization(y, mu, cov, weight, responsibility=None, **kwargs)
         relative_delta_message_length = np.abs((lls - prev_ll)/prev_ll)
         ll_dl.append([lls, dl])
         iterations += 1
-
-        print(iterations, lls)
 
         assert np.isfinite(relative_delta_message_length)
 
