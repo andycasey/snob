@@ -99,4 +99,7 @@ for cluster_field_name, selection_criteria in cluster_field_names.items():
 
     is_member_of_field_name[is_candidate] = is_member
 
+# Only keep bonafide members.
+cluster_data = data[is_member_of_field_name]
 
+cluster_data.write("apogee-dr14-cannon-clusters.fits")
