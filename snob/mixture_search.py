@@ -16,17 +16,198 @@ import scipy
 import scipy.misc
 import scipy.optimize as op
 import os
+import george
+from george import kernels
+
 import  matplotlib.pyplot as plt
+
+
 from matplotlib.patches import Ellipse
 
 from collections import defaultdict
 
+
 logger = logging.getLogger(__name__)
 
-# Used for visualizing the state of the search
-visualization_logger = logging.getLogger("visualize_{}".format(__name__))
-visualization_logger.setLevel(10)
 
+def _group_over(x, y, function):
+
+    x = np.atleast_1d(x)
+    y = np.atleast_1d(y)
+
+    x_unique = np.sort(np.unique(x))
+    y_unique = np.nan * np.ones_like(x_unique)
+
+    for i, xi in enumerate(x_unique):
+        match = (x == xi)
+        y_unique[i] = function(y[match])
+
+    return (x_unique, y_unique)
+
+
+
+class VisualizationHandler(object):
+
+    def __init__(self, y, **kwargs):
+
+        self._color_model = "r"
+        self._color_prediction = "b"
+
+        self._model = []
+        self._expectation_iter = 1
+        self._figure_iter = 1
+        self._figure_prefix = "iter"
+
+        self._predict_slw = []
+
+
+        self.fig, self.axes = plt.subplots(3,3)
+        self.axes = np.array(self.axes).flatten()
+        self._display = True
+
+        self.axes[0].scatter(y.T[0], y.T[1], facecolor="k", alpha=0.5)
+
+        self.axes[0].set_xlabel("Data X")
+        self.axes[0].set_ylabel("Data Y")
+
+        self.axes[1].set_xlabel("E-M iteration")
+        self.axes[1].set_ylabel("I_actual")
+
+        self.axes[2].set_xlabel("K")
+        self.axes[2].set_ylabel("I_predicted")
+
+
+        self.axes[3].set_xlabel("K")
+        self.axes[3].set_ylabel(r"$\sum\log{|C|}$")
+
+        self.axes[4].set_xlabel("K")
+        self.axes[4].set_ylabel(r"$\log{}<|C|>$")
+
+
+        self.axes[5].set_xlabel("K")
+        self.axes[5].set_ylabel(r"$\sum\log{w}$")
+
+        self.savefig()
+
+
+    def _clear_model(self):
+
+        L = len(self._model)
+        for l in range(L):
+            item = self._model.pop(0)
+            item.set_visible(False)
+            del item
+
+    def _update_previous_predict_slws(self):
+        L = len(self._predict_slw)
+        for l in range(L):
+            item = self._predict_slw.pop(0)
+            
+            # TODO: delete or just change/color etc.
+            #item.set_alpha(0.1)
+
+            item.set_visible(False)
+            del item
+
+
+
+    def emit(self, kind, params):
+
+    
+        if kind == "model":
+
+            self._clear_model()
+
+            # Update view of the model.
+            K = params["weight"].size
+
+            for k in range(K):
+                mean = params["mean"][k][:2]
+                cov = params["cov"][k]
+
+                vals, vecs = np.linalg.eigh(cov[:2, :2])
+                order = vals.argsort()[::-1]
+                vals = vals[order]
+                vecs = vecs[:,order]
+
+                theta = np.degrees(np.arctan2(*vecs[:,0][::-1]))
+
+                # Show 2 standard deviations
+                width, height = 2 * 2 * np.sqrt(vals)
+                ellip = Ellipse(xy=mean, width=width, height=height, angle=theta,
+                    facecolor="r", alpha=0.5)
+
+                self._model.append(self.axes[0].add_artist(ellip))
+                self._model.append(self.axes[0].scatter([mean[0]], [mean[1]], facecolor="r"))
+
+            
+            K = params["weight"].size
+            slogdet_cov = np.sum(np.log(np.linalg.det(params["cov"])))
+            log_mean_det_cov = np.log(np.mean(np.linalg.det(params["cov"])))
+
+            self.axes[3].scatter([K], [slogdet_cov], facecolor="k")
+
+            self.axes[4].scatter([K], [log_mean_det_cov], facecolor="k", alpha=0.5)
+
+            sum_log_weights = np.sum(np.log(params["weight"]))
+            self.axes[5].scatter([K], [sum_log_weights], facecolor="k", alpha=0.5)
+
+
+        elif kind == "expectation":
+            self.axes[1].scatter(
+                [self._expectation_iter], [params["message_length"]],
+                facecolor="k")
+            self._expectation_iter += 1
+
+
+        elif kind == "predict_slw":
+
+            self._update_previous_predict_slws()
+
+            K = params["K"]
+            p_slw = params["p_slw"]
+            p_slw_err = params["p_slw_err"]
+            p_slw_max = params["p_slw_max"]
+
+            self._predict_slw.extend([
+                self.axes[5].plot(K, p_slw, 
+                    c=self._color_prediction, zorder=-1)[0],
+                self.axes[5].fill_between(
+                    K, p_slw_err[0] + p_slw, p_slw_err[1] + p_slw, 
+                    facecolor=self._color_prediction, alpha=0.5, zorder=-1),
+                self.axes[5].plot(K, p_slw_max,
+                    c=self._color_prediction, linestyle="--", zorder=-1)[0]
+            ])
+
+
+        else:
+            raise ValueError("what you tryin' to tell me?!")
+
+        # Only save on model update.
+        self.savefig()
+
+        return None
+
+
+    def savefig(self):
+        plt.draw()
+        self.fig.tight_layout()
+        path = "{0:s}_{1:05d}.png".format(self._figure_prefix, self._figure_iter)
+        self.fig.savefig(path)
+        print("Created {}".format(path))
+        self._figure_iter += 1
+
+
+    def create_movie(self, cleanup=True):
+
+        os.system('ffmpeg -y -i "{}_%05d.png" output.m4v'.format(self._figure_prefix))
+
+        if cleanup:
+            os.system("rm -fv {}_*.png".format(self._figure_prefix))
+
+
+
+"""
 class VisualizationHandler(logging.StreamHandler):
 
     _display = False
@@ -38,6 +219,7 @@ class VisualizationHandler(logging.StreamHandler):
     _detcovs = []
 
     _slogdetcovs = []
+    _slogweights = []
 
     def propagate(self):
         return False
@@ -49,6 +231,7 @@ class VisualizationHandler(logging.StreamHandler):
             item = self._model.pop(0)
             item.set_visible(False)
             del item
+
 
 
 
@@ -90,6 +273,11 @@ class VisualizationHandler(logging.StreamHandler):
             self.axes[3].scatter([K], [slogdet_cov], facecolor="k")
 
             self.axes[4].scatter([K], [self._detcovs[-1]], facecolor="k", alpha=0.5)
+
+
+            sum_log_weights = np.sum(np.log(record.args["weight"]))
+            self.axes[5].scatter([K], [sum_log_weights], facecolor="k", alpha=0.5)
+
 
             # Only save on model update.
             self.savefig()
@@ -136,6 +324,7 @@ class VisualizationHandler(logging.StreamHandler):
 
     def savefig(self):
         plt.draw()
+        self.fig.tight_layout()
         path = "{0:s}_{1:05d}.png".format(self._figure_prefix, self._figure_iter)
         self.fig.savefig(path)
         print("Created {}".format(path))
@@ -144,10 +333,31 @@ class VisualizationHandler(logging.StreamHandler):
 
     def enable(self, y):
 
-        self.fig, self.axes = plt.subplots(5)
+        self.fig, self.axes = plt.subplots(3,3)
+        self.axes = np.array(self.axes).flatten()
         self._display = True
 
         self.axes[0].scatter(y.T[0], y.T[1], facecolor="k", alpha=0.5)
+
+        self.axes[0].set_xlabel("Data X")
+        self.axes[0].set_ylabel("Data Y")
+
+        self.axes[1].set_xlabel("E-M iteration")
+        self.axes[1].set_ylabel("I_actual")
+
+        self.axes[2].set_xlabel("K")
+        self.axes[2].set_ylabel("I_predicted")
+
+
+        self.axes[3].set_xlabel("K")
+        self.axes[3].set_ylabel(r"$\sum\log{|C|}$")
+
+        self.axes[4].set_xlabel("K")
+        self.axes[4].set_ylabel(r"$\log{}<|C|>$")
+
+
+        self.axes[5].set_xlabel("K")
+        self.axes[5].set_ylabel(r"$\sum\log{w}$")
 
         self.savefig()
 
@@ -160,8 +370,7 @@ class VisualizationHandler(logging.StreamHandler):
             os.system("rm -fv {}_*.png".format(self._figure_prefix))
 
 
-
-visualization_logger.addHandler(VisualizationHandler())
+"""
 
 
 
@@ -385,6 +594,38 @@ def _approximate_bound_sum_log_determinate_covariances(target_K,
     return all_approx_slogdet_covs[keep]
 
 
+def _approximate_bounds_of_slogdet_cov_for_added_mixture(determinates):
+
+    determinates = np.atleast_1d(determinates)
+
+    #determinates = np.linalg.det(covariance_matrices)
+    current_K = determinates.size
+
+    # Two extremes: either the biggest one splits in ~half, or the smallest
+    # one will split in ~half
+
+    idx_min, idx_max = (np.argmin(determinates), np.argmax(determinates))
+
+    mask_min = np.ones(current_K, dtype=bool)
+    mask_max = np.ones(current_K, dtype=bool)
+
+    mask_min[idx_min] = False
+    mask_max[idx_max] = False
+
+    min_dets = np.hstack([determinates[mask_min], 
+        0.5 * determinates[idx_min], 0.5 * determinates[idx_min]])
+    max_dets = np.hstack([determinates[mask_max],
+        0.5 * determinates[idx_max], 0.5 * determinates[idx_max]])
+    min_slogdets = np.sum(np.log(min_dets))
+    max_slogdets = np.sum(np.log(max_dets))
+
+    return (min_slogdets, max_slogdets), (min_dets, max_dets)
+
+
+
+
+
+
 def _approximate_slogdets(K, covariance_matrices, covariance_type="full"):
     r"""
     Approximate the sum of the log of the determinates of the covariance 
@@ -505,6 +746,10 @@ class GaussianMixture(object):
         self._state_slog_weights = []
         self._state_slog_likelihoods = []
 
+        self._state_predictions_K = []
+        self._state_predictions_slog_det_covs = []
+        self._state_predictions_slog_likelihoods = []
+
         return None
 
 
@@ -533,21 +778,19 @@ class GaussianMixture(object):
         r""" Return the maximum number of expectation-maximization steps. """
         return self._max_em_iterations
 
+
+
     def search(self, y, **kwargs):
-        return self._search(y, **kwargs)
 
-
-    def _search(self, y, **kwargs):
+        visualization_handler \
+            = kwargs.get("visualization_handler", VisualizationHandler(y))
 
         kwds = dict(
             threshold=self._threshold, 
             max_em_iterations=self._max_em_iterations,
             covariance_type=self.covariance_type, 
-            covariance_regularization=self._covariance_regularization)
-
-        # Initialize visualization if necessary.
-        if kwargs.get("visualize", True):
-            visualization_logger.handlers[0].enable(y)
+            covariance_regularization=self._covariance_regularization,
+            visualization_handler=visualization_handler)
 
         # Initialize the mixture.
         mu, cov, weight = _initialize(y, **kwds)
@@ -557,14 +800,6 @@ class GaussianMixture(object):
         self._record_state_for_predictions(cov, weight, ll)
 
 
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots()
-
-        #K = np.arange(2, 11)
-        #y = _approximate_bound_sum_log_determinate_covariances(K, cov)
-        #ax.fill_between(K, y.T[0], y.T[1], alpha=0.25, facecolor="b")
-
 
         while True:
             K = weight.size
@@ -573,18 +808,16 @@ class GaussianMixture(object):
             for k in range(K):
                 perturbation = split_component(y, mu, cov, weight, R, k, **kwds)
     
+                p_cov, p_weight, p_ll = (perturbation[1], perturbation[2], perturbation[-1])
+                self._record_state_for_predictions(p_cov, p_weight, p_ll)
+
                 if perturbation[-1] < best_perturbations["split"][-1]:
                     best_perturbations["split"] = [k] + list(perturbation)
 
             bop, bp = min(best_perturbations.items(), key=lambda x: x[1][-1])
             b_k, b_mu, b_cov, b_weight, b_R, b_meta, b_ml = bp
 
-            x = b_weight.size + np.arange(1, 11)
-            y2 = _approximate_bound_sum_log_determinate_covariances(x, b_cov)
-            ax.fill_between(x, y2.T[0], y2.T[1], alpha=0.25, facecolor="b")
             
-            ax.scatter([b_weight.size], [np.sum(np.log(np.linalg.det(b_cov)))])
-
             # Check to see if we are cooked.
             if b_ml >= message_length: break
             # Not cooked!
@@ -597,13 +830,53 @@ class GaussianMixture(object):
             # Record things for predictive purposes.
             self._record_state_for_predictions(cov, weight, ll)
 
+            # Predict future mixtures.
+            if visualization_handler is not None:
 
+                target_K = weight.size + np.arange(1, 10)
+
+                self._predict_message_length(target_K, **kwds)
+
+                #visualization_handler.emit("predict", dict(model=self))
+
+
+
+        raise a
         K = np.arange(1, 11)
         self._predict_slogweights(K)
-
         self._predict_slogdetcovs(K)
 
         raise a
+
+
+    def _predict_message_length(self, target_K, **kwargs):
+        """
+        Predict the message lengths of unobserved mixtures.
+
+        :param target_K:
+            An array-like object of K-th mixtures to predict message lengths
+            for.
+        """
+
+        target_K = np.atleast_1d(target_K)
+
+
+        p_slw, p_slw_err, p_slw_max = self._predict_slogweights(target_K)
+
+        # Predict log-likelihoods.
+        self._predict_log_likelihoods(target_K)
+
+
+        # Predict sum log of the determinates of the covariance matrices.
+
+        # Visualize predictions.
+        visualization_handler = kwargs.get("visualization_handler", None)
+        if visualization_handler is not None:
+            visualization_handler.emit("predict_slw",
+                dict(K=target_K, p_slw=p_slw, p_slw_err=p_slw_err, p_slw_max=p_slw_max))
+
+
+
 
 
     def _record_state_for_predictions(self, cov, weight, log_likelihood):
@@ -625,31 +898,96 @@ class GaussianMixture(object):
         self._state_slog_likelihoods.append(np.sum(log_likelihood))
 
 
+
+
     def  _predict_slogweights(self, target_K):
 
+        max_y_bound = _approximate_sum_log_weights(target_K)
+
+        x_unique, y_unique = _group_over(
+            self._state_K, self._state_slog_weights, np.min)
+
+        function = lambda x, scale, constant: -x * scale * np.log(x) + constant
+
+        p_opt, p_cov = op.curve_fit(function, x_unique, y_unique)
+
+        pred = function(target_K, *p_opt)
+
+        if np.all(np.isfinite(p_cov)):
+            draws = np.random.multivariate_normal(p_opt, p_cov, size=100)
+            pred_err = np.percentile(
+                [function(target_K, *draw) for draw in draws], [16, 84], axis=0) \
+                - pred
+
+        else:
+            pred_err = np.nan * np.ones((2, target_K.size))
+
+        return (pred, pred_err, max_y_bound)
+
+
+
+
+    def _predict_log_likelihoods(self, target_K):
+
+        x = np.array(self._state_K)
+        y = np.array(self._state_slog_likelihoods)
+
+        x_unique, y_unique = _group_over(x, y, np.max)
+
+        # The difference is propto 1/k
+        new_y = np.diff(y_unique)
+        new_x = 1.0/x_unique[:-1]
+
         fig, ax = plt.subplots()
+        ax.scatter(new_x, new_y)
 
-        x = np.atleast_1d(target_K)
-        y_bound = _approximate_sum_log_weights(x)
 
-        xdata = np.array(self._state_K)
-        ydata = np.array(self._state_slog_weights)
 
-        ax.scatter(xdata, ydata)
-        ax.plot(x, y_bound, c='r')
+        if new_x.size > 10:
+            raise a
+        return None 
+
+
+
+
+        kernel = np.var(y) * kernels.ExpSquaredKernel(1)
+        gp = george.GP(kernel, mean=np.mean(y), fit_mean=True)
+        gp.compute(x, yerr)
+
+        x_pred = np.atleast_1d(target_K)
+        pred, pred_var = gp.predict(y, x_pred, return_var=True)
+
+        fig, ax = plt.subplots()
+        ax.scatter(xo, yo, facecolor="#666666", alpha=0.5)
+        ax.scatter(x, y)
+
+        ax.fill_between(x_pred, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var), color="r", alpha=0.2)
+
+
+        raise a
 
 
     def _predict_slogdetcovs(self, target_K):
 
-        from george import kernels
 
-        x = np.array(self._state_K)
-        y = np.array([np.sum(np.log(each)) for each in self._state_det_covs])
+        xo = np.array(self._state_K)
+        yo = np.array([np.sum(np.log(each)) for each in self._state_det_covs])
+        yo = np.array([np.mean(np.log(each)) for each in self._state_det_covs])
 
-        yerr = 0.1 
 
-        kernel = np.var(y) * kernels.ExpSquaredKernel(0.5)
-        gp = george.GP(kernel)
+        xu = np.sort(np.unique(xo))
+        yu = np.array([np.mean(yo[xo==xi]) for xi in xu])
+        yu_err = np.array([np.std(yo[xo==xi]) for xi in xu])
+
+        #yerr = 0.1 # 1.0/x
+        x, y, yerr = xu, yu, yu_err
+        yerr = 0.1
+
+        #ok = yerr > 0
+        #x, y, yerr = x[ok], y[ok], yerr[ok]
+
+        kernel = np.var(y) * kernels.ExpSquaredKernel(1)
+        gp = george.GP(kernel, mean=np.mean(y), fit_mean=True)
         gp.compute(x, yerr)
 
         x_pred = np.atleast_1d(target_K)
@@ -658,8 +996,7 @@ class GaussianMixture(object):
         fig, ax = plt.subplots()
         ax.scatter(x, y)
 
-        ax.fill_between(x_pred, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var),
-                color="k", alpha=0.2)
+        ax.fill_between(x_pred, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var), color="r", alpha=0.2)
 
 
         raise a
@@ -1066,7 +1403,10 @@ def _initialize(y, covariance_type, covariance_regularization, **kwargs):
     cov = _estimate_covariance_matrix(y, np.ones((1, N)), mean,
         covariance_type, covariance_regularization)
 
-    visualization_logger.info("model", dict(mean=mean, cov=cov, weight=weight))
+    visualization_handler = kwargs.get("visualization_handler", None)
+    if visualization_handler is not None:
+        visualization_handler.emit("model", dict(mean=mean, cov=cov, weight=weight))
+
 
     return (mean, cov, weight)
     
@@ -1106,8 +1446,10 @@ def _expectation(y, mu, cov, weight, **kwargs):
 
     I = _message_length(y, mu, cov, weight, responsibility, nll, **kwargs)
     
-    visualization_logger.info("expectation", dict(message_length=I, 
-        responsibility=responsibility, log_likelihood=log_likelihood))
+    visualization_handler = kwargs.get("visualization_handler", None)
+    if visualization_handler is not None:
+        visualization_handler.emit("expectation", dict(message_length=I, 
+            responsibility=responsibility, log_likelihood=log_likelihood))
 
     return (responsibility, log_likelihood, I)
 
@@ -1464,9 +1806,11 @@ def _maximization(y, mu, cov, weight, responsibility, parent_responsibility=1,
     assert np.all(np.isfinite(new_mu))
     assert np.all(np.isfinite(new_cov))
     assert np.all(np.isfinite(new_weight))
-
-    visualization_logger.info("model",
-        dict(mean=new_mu, cov=new_cov, weight=new_weight))
+    
+    visualization_handler = kwargs.get("visualization_handler", None)
+    if visualization_handler is not None:
+        visualization_handler.emit("model", dict(mean=new_mu, cov=new_cov, 
+            weight=new_weight))
 
     return state 
 
