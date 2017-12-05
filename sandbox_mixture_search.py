@@ -41,6 +41,40 @@ y = np.vstack([np.random.multivariate_normal(
 
 
 
+
+import logging
+import numpy as np
+from sklearn import (cluster, datasets)
+from collections import Counter
+from snob import mixture_search
+
+np.random.seed(42)
+
+
+def _generate_data(N=None, D=None, K=None, cluster_std=1.0, 
+    center_box=(-10, 10.0), shuffle=True, random_state=None):
+
+    if K is None:
+        K = max(1, abs(int(np.random.normal(0, 100))))
+
+    if N is None:
+        N = int(np.random.uniform(K, K**2))
+
+    if D is None:
+        D = int(np.random.uniform(1, 10))
+
+    kwds = dict(n_samples=N, n_features=D, centers=K,
+        cluster_std=cluster_std, center_box=center_box, shuffle=shuffle,
+        random_state=random_state)
+    X, y = datasets.make_blobs(**kwds)
+    return (X, y, kwds)
+
+
+y, labels, kwds = _generate_data()
+
+
+
+
 #y = np.loadtxt("toy-data/cluster_example.txt")
 
 

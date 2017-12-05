@@ -105,6 +105,7 @@ class VisualizationHandler(object):
             item.set_visible(False)
             del item
 
+
     def _update_previous_predict_slws(self):
         L = len(self._predict_slw)
         for l in range(L):
@@ -116,12 +117,14 @@ class VisualizationHandler(object):
             item.set_visible(False)
             del item
 
-    def _update_previous_predict_ll(self):
+    def _update_previous_predict_lls(self):
         L = len(self._predict_ll)
         for l in range(L):
             item = self._model.pop(0)
-            item.set_visible(False)
-            del item
+            #item.set_visible(False)
+            item.set_alpha(0.5)
+
+            #del item
 
 
 
@@ -213,10 +216,17 @@ class VisualizationHandler(object):
             self._update_previous_predict_lls()
 
             K = params["K"]
-            ll = params["ll"]
+            p_ll = params["p_ll"]/self._reference_ll
+            p_ll_err = params["p_ll_err"]/self._reference_ll
 
-            raise a
-
+            self._predict_ll.extend([
+                self.axes[6].plot(K, p_ll,
+                    c=self._color_prediction, zorder=-1)[0]
+            ])
+            #    self.axes[6].fill_between(
+            #        K, p_ll_err[0] + p_ll, p_ll_err[1] + p_ll,
+            #        facecolor=self._color_prediction, alpha=0.5, zorder=-1)
+            #    ])
 
 
         else:
@@ -834,7 +844,7 @@ class GaussianMixture(object):
         N, D = y.shape
 
 
-        for K in range(1, 50):
+        for K in range(1, 100):
 
             print("Running at K = {}".format(K))
 
@@ -853,7 +863,14 @@ class GaussianMixture(object):
             weight = responsibility.sum(axis=1)/N
 
             # Do one E-M step.
-            R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+            try:
+                R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+
+            except ValueError:
+                logger.exception("Failed to calculate E-step")
+                continue
+
+
             self._record_state_for_predictions(cov, weight, ll)
 
             mu, cov, weight = _maximization(
@@ -955,7 +972,7 @@ class GaussianMixture(object):
         p_slw, p_slw_err, p_slw_max = self._predict_slogweights(target_K)
 
         # Predict log-likelihoods.
-        self._predict_log_likelihoods(target_K)
+        p_ll, p_ll_err = self._predict_log_likelihoods(target_K)
 
 
         # Predict sum log of the determinates of the covariance matrices.
@@ -965,6 +982,11 @@ class GaussianMixture(object):
         if visualization_handler is not None:
             visualization_handler.emit("predict_slw",
                 dict(K=target_K, p_slw=p_slw, p_slw_err=p_slw_err, p_slw_max=p_slw_max))
+
+            if p_ll is not None:
+                visualization_handler.emit("predict_ll",
+                    dict(K=target_K, p_ll=p_ll, p_ll_err=p_ll_err))
+
 
 
 
@@ -1029,72 +1051,35 @@ class GaussianMixture(object):
 
         x_unique, y_unique = _group_over(x, y, np.max)
 
+        normalization = y_unique[0]
         
         x_fit = x_unique
-        y_fit = y_unique/y_unique[0]
-
-        if x_fit.size < 3:
-            return None
-
+        y_fit = y_unique/normalization
 
         function = lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
+        f = lambda x, *p: normalization * function(x, *p)
 
         p0 = np.ones(3)
 
-        p_opt, p_cov = op.curve_fit(function, x_fit, y_fit, 
-            p0=p0, maxfev=10000)
+        try:
+            p_opt, p_cov = op.curve_fit(function, x_fit, y_fit, 
+                p0=p0, maxfev=10000)
+        except (RuntimeError, TypeError):
+            return (None, None)
 
+        pred = f(target_K, *p_opt)
 
-        fig, ax = plt.subplots()
-        ax.scatter(x_fit, y_fit)
-        ax.plot(x_fit, function(x_fit, *p_opt), c='r')
-        ax.plot(target_K, function(target_K, *p_opt), c='r')
+        if np.all(np.isfinite(p_cov)):
+            draws = np.random.multivariate_normal(p_opt, p_cov, size=100)
+            pred_err = np.percentile(
+                [f(target_K, *draw) for draw in draws], [16, 84], axis=0) \
+                - pred
 
-        """
-        O = min(x_fit.size - 1, 2)
+        else:
+            pred_err = np.nan * np.ones((2, target_K.size))
 
-        function = lambda x, *p: np.polyval(p, x)
+        return (pred, pred_err)
 
-        p_opt, p_cov = op.curve_fit(function, x_fit, y_fit, p0=np.zeros(O))
-
-
-        # Now predict for target_K
-        pred = y_unique[0] * function(target_K, *p_opt)
-
-        fig, ax = plt.subplots()
-        ax.scatter()
-        """
-
-        fig, ax = plt.subplots()
-        ax.scatter(x_fit, y_fit)
-
-
-        return None
-
-
-
-        if x_fit.size > 10:
-            raise a
-        return None 
-
-
-
-
-        kernel = np.var(y) * kernels.ExpSquaredKernel(1)
-        gp = george.GP(kernel, mean=np.mean(y), fit_mean=True)
-        gp.compute(x, yerr)
-
-        x_pred = np.atleast_1d(target_K)
-        pred, pred_var = gp.predict(y, x_pred, return_var=True)
-
-        fig, ax = plt.subplots()
-        ax.scatter(xo, yo, facecolor="#666666", alpha=0.5)
-        ax.scatter(x, y)
-
-        ax.fill_between(x_pred, pred - np.sqrt(pred_var), pred + np.sqrt(pred_var), color="r", alpha=0.2)
-
-
-        raise a
 
 
     def _predict_slogdetcovs(self, target_K):
