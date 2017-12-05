@@ -19,6 +19,7 @@ import os
 import george
 from george import kernels
 from sklearn import cluster
+from sklearn.utils.extmath import row_norms
 
 import  matplotlib.pyplot as plt
 
@@ -57,7 +58,7 @@ class VisualizationHandler(object):
         self._model = []
         self._expectation_iter = 1
         self._figure_iter = 1
-        self._figure_prefix = "iter"
+        self._figure_prefix = "iter_{}".format(int(np.random.uniform(0, 1000)))
 
         self._predict_slw = []
         self._predict_ll = []
@@ -828,7 +829,7 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
 
-    def kmeans_search(self, y, **kwargs):
+    def kmeans_search(self, y, Kmax, **kwargs):
 
 
         visualization_handler \
@@ -844,19 +845,28 @@ class GaussianMixture(object):
         N, D = y.shape
 
 
-        for K in range(1, 100):
+        for K in range(1, Kmax):
 
-            print("Running at K = {}".format(K))
+            print("Running at K = {} / {}".format(K, Kmax))
 
             model = cluster.KMeans(n_clusters=K)
             model.fit(y)
 
             mu = model.cluster_centers_
-
+                
             # generate repsonsibilities.
             responsibility = np.zeros((K, N))
             responsibility[model.labels_, np.arange(N)] = 1.0
 
+            
+
+            # Just use k-means++ to initialize
+            """
+            x_squared_norms = row_norms(y, squared=True)
+            mu = cluster.k_means_._k_init(y, K, x_squared_norms=x_squared_norms)
+            """
+
+            
             # estimate covariance matrices.
             cov = _estimate_covariance_matrix_full(y, responsibility, mu)
 
@@ -882,7 +892,7 @@ class GaussianMixture(object):
                 self._predict_message_length(target_K, **kwds)
 
 
-        raise a
+        return None
 
 
 

@@ -50,7 +50,6 @@ from snob import mixture_search
 
 np.random.seed(42)
 
-
 def _generate_data(N=None, D=None, K=None, cluster_std=1.0, 
     center_box=(-10, 10.0), shuffle=True, random_state=None):
 
@@ -70,8 +69,26 @@ def _generate_data(N=None, D=None, K=None, cluster_std=1.0,
     return (X, y, kwds)
 
 
-y, labels, kwds = _generate_data()
+for i in range(10):
 
+    y, labels, kwds = _generate_data()
+
+
+    search_model = mixture.GaussianMixture()
+    search_model.kmeans_search(y, kwds["centers"] + 10)
+
+    """
+    x = np.array(search_model._state_K)
+    y = np.array([np.mean(each) for each in search_model._state_det_covs])
+
+    fig, ax = plt.subplots()
+    ax.scatter(x, np.log(y))
+
+
+    raise a
+    """
+    
+raise a
 
 
 
