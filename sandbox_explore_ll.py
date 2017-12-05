@@ -38,22 +38,14 @@ def _generate_data(N=None, D=None, K=None, cluster_std=1.0,
     return (X, y, kwds)
 
 
-def _quick_fit_data(y, K, **kwargs):
-
-    model = KMeans(n_clusters=K, **kwargs)
-    model.fit(y)
-
-    # calculate LL, etc.
-
-    raise a
-
-
-
-experiments = 10
+experiments = 1
 
 data = {}
 for experiment_number in range(experiments):
     data[experiment_number] = _generate_data()
+
+data[0] = (np.loadtxt("toy-data/cluster_example.txt"), None, dict(centers=17))
+
 
 
 # calculate total size of arrays.
@@ -62,7 +54,8 @@ max_K = max(K_trues)
 
 print("K_trues: {} {}".format(max_K, K_trues))
 
-raise a
+
+
 
 K_trials = np.repeat(np.arange(1, max_K + 1), experiments)
 K_trials = K_trials.reshape((-1, experiments)).T
@@ -107,9 +100,70 @@ for e in range(experiments):
         print(e, i, K, K_true)
 
 
-fig, ax = plt.subplots()
+
+
+fig, axes = plt.subplots(3)
 for e in range(experiments):
-    ax.scatter(K_trials[e], ll_trials[e])
+
+    finite = np.isfinite(ll_trials[e])
+    if not np.any(finite): continue
 
 
-raise a
+    offset = ll_trials[e, np.where(finite)[0][-1]]
+    ptp = np.ptp(ll_trials[e, finite])
+
+    y = (ll_trials[e] - offset)/ptp
+
+    x = K_trials[e]
+
+    
+    axes[0].scatter(K_trials[e], ll_trials[e]/ll_trials[e, 0])
+
+
+    
+    x_new = np.linspace(0, 1, 100)
+    y_new = np.interp(x_new, x.astype(float)/max(x[finite]), y)    
+
+    axes[1].scatter(x_new, y_new)
+
+
+    axes[2].scatter(x[:-1], np.diff(ll_trials[e]))
+
+
+
+
+import scipy.optimize as op
+for e in range(experiments):
+
+
+    x = K_trials[e]
+    y = ll_trials[e]
+    
+    finite = np.isfinite(y)
+    if not any(finite): continue
+
+
+    x, y = (x[finite], y[finite]/y[0])
+
+    # Only use first 3 points:
+    P = np.zeros(x.size, dtype=bool)
+    P[:] = True
+    x_fit, y_fit = (x[P], y[P])
+
+    fig, ax = plt.subplots()
+
+    ax.scatter(x, y)
+    ax.scatter(x_fit, y_fit, facecolor="r")
+
+
+    function = lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
+
+
+    p0 = np.ones(3)
+
+    p_opt, p_cov = op.curve_fit(function, x_fit, y_fit, 
+        p0=p0, maxfev=10000)
+
+    ax.plot(x, function(x, *p_opt))
+
+    print(p_opt)

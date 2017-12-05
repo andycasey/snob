@@ -18,6 +18,7 @@ import scipy.optimize as op
 import os
 import george
 from george import kernels
+from sklearn import cluster
 
 import  matplotlib.pyplot as plt
 
@@ -59,6 +60,9 @@ class VisualizationHandler(object):
         self._figure_prefix = "iter"
 
         self._predict_slw = []
+        self._predict_ll = []
+
+        self._reference_ll = None
 
 
         self.fig, self.axes = plt.subplots(3,3)
@@ -87,6 +91,9 @@ class VisualizationHandler(object):
         self.axes[5].set_xlabel("K")
         self.axes[5].set_ylabel(r"$\sum\log{w}$")
 
+        self.axes[6].set_xlabel("K")
+        self.axes[6].set_ylabel(r"$\log{L}/\log{L_0}$")
+
         self.savefig()
 
 
@@ -108,6 +115,15 @@ class VisualizationHandler(object):
 
             item.set_visible(False)
             del item
+
+    def _update_previous_predict_ll(self):
+        L = len(self._predict_ll)
+        for l in range(L):
+            item = self._model.pop(0)
+            item.set_visible(False)
+            del item
+
+
 
 
 
@@ -159,6 +175,18 @@ class VisualizationHandler(object):
                 facecolor="k")
             self._expectation_iter += 1
 
+            # plot LL as well
+            K = params["K"]
+            ll = np.sum(params["log_likelihood"])
+
+            if self._reference_ll is None:
+                self._reference_ll = ll
+
+            self.axes[6].scatter([K], [ll/self._reference_ll], facecolor="k")
+
+
+
+
 
         elif kind == "predict_slw":
 
@@ -178,6 +206,17 @@ class VisualizationHandler(object):
                 self.axes[5].plot(K, p_slw_max,
                     c=self._color_prediction, linestyle="--", zorder=-1)[0]
             ])
+
+
+        elif kind == "predict_ll":
+
+            self._update_previous_predict_lls()
+
+            K = params["K"]
+            ll = params["ll"]
+
+            raise a
+
 
 
         else:
@@ -779,6 +818,58 @@ class GaussianMixture(object):
         return self._max_em_iterations
 
 
+    def kmeans_search(self, y, **kwargs):
+
+
+        visualization_handler \
+            = kwargs.get("visualization_handler", VisualizationHandler(y))
+
+        kwds = dict(
+            threshold=self._threshold, 
+            max_em_iterations=self._max_em_iterations,
+            covariance_type=self.covariance_type, 
+            covariance_regularization=self._covariance_regularization,
+            visualization_handler=visualization_handler)
+
+        N, D = y.shape
+
+
+        for K in range(1, 50):
+
+            print("Running at K = {}".format(K))
+
+            model = cluster.KMeans(n_clusters=K)
+            model.fit(y)
+
+            mu = model.cluster_centers_
+
+            # generate repsonsibilities.
+            responsibility = np.zeros((K, N))
+            responsibility[model.labels_, np.arange(N)] = 1.0
+
+            # estimate covariance matrices.
+            cov = _estimate_covariance_matrix_full(y, responsibility, mu)
+
+            weight = responsibility.sum(axis=1)/N
+
+            # Do one E-M step.
+            R, ll, message_length = _expectation(y, mu, cov, weight, **kwds)
+            self._record_state_for_predictions(cov, weight, ll)
+
+            mu, cov, weight = _maximization(
+                y, mu, cov, weight, responsibility, **kwds)
+            
+            if visualization_handler is not None:
+
+                target_K = weight.size + np.arange(1, 10)
+                self._predict_message_length(target_K, **kwds)
+
+
+        raise a
+
+
+
+
 
     def search(self, y, **kwargs):
 
@@ -907,20 +998,24 @@ class GaussianMixture(object):
         x_unique, y_unique = _group_over(
             self._state_K, self._state_slog_weights, np.min)
 
-        function = lambda x, scale, constant: -x * scale * np.log(x) + constant
+        if x_unique.size > 1:            
+            function = lambda x, scale, constant: -x * scale * np.log(x) + constant
+            p_opt, p_cov = op.curve_fit(function, x_unique, y_unique)
 
-        p_opt, p_cov = op.curve_fit(function, x_unique, y_unique)
+            pred = function(target_K, *p_opt)
 
-        pred = function(target_K, *p_opt)
+            if np.all(np.isfinite(p_cov)):
+                draws = np.random.multivariate_normal(p_opt, p_cov, size=100)
+                pred_err = np.percentile(
+                    [function(target_K, *draw) for draw in draws], [16, 84], axis=0) \
+                    - pred
 
-        if np.all(np.isfinite(p_cov)):
-            draws = np.random.multivariate_normal(p_opt, p_cov, size=100)
-            pred_err = np.percentile(
-                [function(target_K, *draw) for draw in draws], [16, 84], axis=0) \
-                - pred
+            else:
+                pred_err = np.nan * np.ones((2, target_K.size))
 
         else:
-            pred_err = np.nan * np.ones((2, target_K.size))
+            pred = max_y_bound
+            pred_err = np.nan * np.ones((2, pred.size))
 
         return (pred, pred_err, max_y_bound)
 
@@ -934,16 +1029,51 @@ class GaussianMixture(object):
 
         x_unique, y_unique = _group_over(x, y, np.max)
 
-        # The difference is propto 1/k
-        new_y = np.diff(y_unique)
-        new_x = 1.0/x_unique[:-1]
+        
+        x_fit = x_unique
+        y_fit = y_unique/y_unique[0]
+
+        if x_fit.size < 3:
+            return None
+
+
+        function = lambda x, *p: p[0] / np.exp(p[1] * x) + p[2]
+
+        p0 = np.ones(3)
+
+        p_opt, p_cov = op.curve_fit(function, x_fit, y_fit, 
+            p0=p0, maxfev=10000)
+
 
         fig, ax = plt.subplots()
-        ax.scatter(new_x, new_y)
+        ax.scatter(x_fit, y_fit)
+        ax.plot(x_fit, function(x_fit, *p_opt), c='r')
+        ax.plot(target_K, function(target_K, *p_opt), c='r')
+
+        """
+        O = min(x_fit.size - 1, 2)
+
+        function = lambda x, *p: np.polyval(p, x)
+
+        p_opt, p_cov = op.curve_fit(function, x_fit, y_fit, p0=np.zeros(O))
+
+
+        # Now predict for target_K
+        pred = y_unique[0] * function(target_K, *p_opt)
+
+        fig, ax = plt.subplots()
+        ax.scatter()
+        """
+
+        fig, ax = plt.subplots()
+        ax.scatter(x_fit, y_fit)
+
+
+        return None
 
 
 
-        if new_x.size > 10:
+        if x_fit.size > 10:
             raise a
         return None 
 
@@ -1448,8 +1578,9 @@ def _expectation(y, mu, cov, weight, **kwargs):
     
     visualization_handler = kwargs.get("visualization_handler", None)
     if visualization_handler is not None:
-        visualization_handler.emit("expectation", dict(message_length=I, 
-            responsibility=responsibility, log_likelihood=log_likelihood))
+        visualization_handler.emit("expectation", dict(
+            K=weight.size, message_length=I, responsibility=responsibility,
+            log_likelihood=log_likelihood))
 
     return (responsibility, log_likelihood, I)
 

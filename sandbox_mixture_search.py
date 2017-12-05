@@ -41,7 +41,7 @@ y = np.vstack([np.random.multivariate_normal(
 
 
 
-y = np.loadtxt("toy-data/cluster_example.txt")
+#y = np.loadtxt("toy-data/cluster_example.txt")
 
 
 #n_samples = 500
@@ -110,7 +110,7 @@ raise a
 """
 
 search_model = mixture.GaussianMixture()
-search_model.search(y)
+search_model.kmeans_search(y)
 
 
 
